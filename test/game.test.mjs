@@ -392,6 +392,50 @@ test("uses K for thousands of API calls and M for millions of tokens", () => {
   expect(compact(8_466_623, 1_000_000, "M")).toBe("8.47M");
 });
 
+test("the Magpie page uses its configured port and falls back when the host bridge hangs", async () => {
+  const script = readFileSync(new URL("../page/app.js", import.meta.url), "utf8");
+  function launch(magpie) {
+    const status = { textContent: "" };
+    const address = { textContent: "" };
+    const retry = { hidden: true, disabled: false, addEventListener() {} };
+    const elements = { "lobby-status": status, "lobby-address": address, retry };
+    const timers = new Map();
+    const redirects = [];
+    runInNewContext(script, {
+      magpie,
+      document: { getElementById: (id) => elements[id] },
+      location: { replace: (target) => redirects.push(target) },
+      setTimeout: (callback, delay) => {
+        timers.set(delay, callback);
+        return delay;
+      },
+      clearTimeout: (delay) => timers.delete(delay),
+    });
+    return { status, address, retry, timers, redirects };
+  }
+
+  const custom = launch({ ready: Promise.resolve(), options: { get: async () => ({ localPort: 4567 }) } });
+  await Bun.sleep(0);
+  expect(custom.redirects).toEqual(["http://127.0.0.1:4567/embedded"]);
+  expect(custom.address.textContent).toBe("http://127.0.0.1:4567/");
+  expect(custom.timers.has(1500)).toBe(false);
+
+  for (const bridge of [
+    { ready: new Promise(() => {}) },
+    { ready: Promise.resolve(), options: { get: () => new Promise(() => {}) } },
+  ]) {
+    const stalled = launch(bridge);
+    expect(stalled.redirects).toEqual([]);
+    stalled.timers.get(1500)();
+    await Bun.sleep(0);
+    expect(stalled.redirects).toEqual(["http://127.0.0.1:3468/embedded"]);
+    expect(stalled.address.textContent).toBe("http://127.0.0.1:3468/");
+    stalled.timers.get(4000)();
+    expect(stalled.status.textContent).toContain("复制到浏览器");
+    expect(stalled.retry).toMatchObject({ disabled: false, hidden: false });
+  }
+});
+
 test("local room serves browser assets and validates invitation actions", async () => {
   const origin = "http://127.0.0.1:3468";
   const player = {

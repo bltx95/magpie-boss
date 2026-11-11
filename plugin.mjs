@@ -130,6 +130,7 @@ async function start({ directory }, options) {
     console.warn("Magpie Boss 配置无效，请检查房间地址和本机端口。");
     return {};
   }
+  let portBusy = false;
   const launch = async () => {
     let server;
     let player;
@@ -153,10 +154,13 @@ async function start({ directory }, options) {
           ? local.fetch(new Request(url, init)) : lobbyFetch(url, init),
       });
       handle = createLocalHandler(player, origin);
+      console.info(`Magpie Boss 本机大厅已启动 · ${origin}/`);
     } catch (error) {
       server?.stop(true);
       if (error.code === "EADDRINUSE") {
         // Magpie can finish retiring the previous plugin host after starting the next one.
+        if (!portBusy) console.warn(`Magpie Boss 本机端口 ${port} 被占用，正在重试。`);
+        portBusy = true;
         setTimeout(launch, 2000).unref();
       } else {
         console.warn("Magpie Boss 无法启动本机房间，请检查插件目录和端口。");
