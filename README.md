@@ -2,15 +2,21 @@
 
 在 Magpie 后台把日常 AI 请求变成 Boss 攻击。安装插件后，从 Magpie 侧栏的「magpie-boss」直接打开大厅。关掉页面后攻击继续结算。页面右下角有「玩法指引」。
 
-## 本机试跑
+## 安装和开玩
 
-本项目在 Bun 1.4.4、Magpie 0.1.3576 上验证。客户端由 Magpie 的插件宿主启动。
+在 Magpie 的「插件 → 发现」搜索 `magpie-boss` 并安装，也可以用命令行安装：
 
-1. 在 Magpie 的「设置 → 插件 → 添加插件」中选择这个项目的目录。也可以在项目目录运行 `magpie plugin add "$PWD"`。如果 macOS 上的命令还没加入 PATH，可以运行 `/Applications/Magpie.app/Contents/MacOS/magpie plugin add "$PWD"`。
-2. 启用后点侧栏的「magpie-boss」。新玩家默认进入公共大厅，老玩家回到原来的房间。可从大厅选择公开房、建自己的房间、输入私人房邀请码，以及随时更改昵称。
-3. 发现共享大厅时会自动连接。没有共享大厅时，插件启动本机大厅，可以直接玩。也可以在浏览器打开 [本机 Boss 房间](http://127.0.0.1:3468/)。
+```sh
+magpie plugin add magpie-boss
+```
 
-## 叫同事加入
+启用后点侧栏的「magpie-boss」。插件会自动连接[云端大厅](https://room-production-d88962f8.up.railway.app/)。新玩家进入公共大厅，老玩家回到原来的房间。可以创建房间、用 8 位邀请码加入私人房，也可以随时改昵称。
+
+插件无需模型账号或 API Key。启用后会从本机 Magpie 用量记录（包括 Magpie 汇总的 Codex 用量）生成攻击。云端接收游戏昵称、攻击标识和日期；Token 数和对话内容留在本机。公开房的昵称、等级和最近战报对同房玩家可见。
+
+本项目在 Bun 1.4.4、Magpie 0.1.3576 上验证。开发时可以在项目目录运行 `magpie plugin add "$PWD"` 来安装源码。
+
+## 自建局域网大厅
 
 共享大厅由一台办公室电脑运行一次，其他玩家只需安装插件。macOS 上，下面的命令会在可信局域网内发布 Bonjour 大厅地址。
 
@@ -18,7 +24,7 @@
 BOSS_HOST=0.0.0.0 bun run room
 ```
 
-同一网络的客户端会尝试发现 `magpie-boss.local:8787`。需要跨网段或办公室禁用 Bonjour 时，可以在分发包的 `package.json` 中预设 `magpie.sharedLobby` 为共享服务的地址，所有玩家使用同一份包。也可以从插件的高级选项指定 `roomServer`。
+在其他电脑的插件高级选项里，将 `roomServer` 设为这台服务器的地址，例如 `http://magpie-boss.local:8787`。如果要开发自动发现或单机模式，可在源码中清空 `magpie.sharedLobby` 和 `data-hosted-lobby`，并保留 `roomServer` 为空。插件会查找局域网大厅，找不到时启动本机大厅。
 
 公开房在大厅里直接进入。私人房通过 8 位数字邀请码加入，原来的邀请链接也可使用。切换房间时，个人等级保留，后续攻击计入新房间。
 
@@ -31,7 +37,7 @@ BOSS_HOST=0.0.0.0 bun run room
    ```
 
 2. 用 HTTPS 反向代理把域名转发到 `127.0.0.1:8787`。在 Railway 上，服务也可以自动使用 `RAILWAY_PUBLIC_DOMAIN`。访问首页可打开大厅，`/health` 返回 `{"service":"magpie-boss"}`。
-3. 在云端插件包中，把 `package.json` 的 `magpie.sharedLobby` 和 `page/index.html` 的 `data-hosted-lobby` 设为同一个 HTTPS 地址。高级选项中的 `roomServer` 会覆盖安装包的默认地址。
+3. 在插件高级选项中将 `roomServer` 设为你自建的 HTTPS 地址。要为团队分发预设地址的安装包，可以同步修改 `package.json` 的 `magpie.sharedLobby` 和 `page/index.html` 的 `data-hosted-lobby`。
 
 云端模式下，Magpie 直接打开服务器上的大厅，并自动绑定后台插件的玩家身份。后台插件通过 HTTPS 同步攻击。在普通浏览器中也可以先以访客身份加入房间，再从大厅的「绑定 Magpie」复制配对码，填入 magpie-boss 的插件选项 `pairingCode`。绑定后使用 Magpie 角色的原有昵称和等级。网页显示当天已结算的攻击次数，调用量和 Token 留在本机。
 

@@ -1,15 +1,29 @@
 {
   "name": "magpie-boss",
-  "version": "0.4.0",
-  "private": true,
+  "version": "0.4.1",
+  "description": "把 Magpie 的模型调用变成团队 Boss 战。Join a shared boss raid powered by your Magpie model calls.",
   "type": "module",
   "main": "./plugin.mjs",
+  "homepage": "https://room-production-d88962f8.up.railway.app/",
+  "keywords": ["opencode", "opencode-plugin", "plugin", "magpie", "magpie-plugin", "boss", "game"],
+  "files": [
+    "plugin.mjs",
+    "player.mjs",
+    "usage.mjs",
+    "lobby-network.mjs",
+    "room-server.mjs",
+    "boss.mjs",
+    "web-assets.mjs",
+    "page/",
+    "web/"
+  ],
   "scripts": {
     "room": "bun room-server.mjs",
     "test": "bun test"
   },
   "magpie": {
     "name": "magpie-boss",
+    "sharedLobby": "https://room-production-d88962f8.up.railway.app",
     "page": {
       "title": "magpie-boss",
       "file": "page/index.html"
