@@ -11,6 +11,24 @@ const outcomeLabels = {
   hit: "命中", critical: "暴击", dodge: "Boss 闪避", counter: "Boss 反击",
   overpower: "重暴击", followUp: "追击", execute: "斩杀", instant: "秒杀",
 };
+const bossLines = [
+  "愿你只在生产复现。",
+  "但愿日志刚好没开。",
+  "祝你合并时全是冲突。",
+  "愿你回滚也要审批。",
+  "愿你的索引刚好失效。",
+  "愿缓存记住你的旧代码。",
+  "愿你的断点永远差一行。",
+  "愿提测时依赖刚好挂了。",
+  "愿你的工单都写着「偶现」。",
+  "愿测试只在 CI 上失败。",
+  "愿你的构建卡在最后一步。",
+  "愿代码评审赶上周五下班。",
+  "愿你找遍日志，只看到重试。",
+  "但愿你上线前还能改需求。",
+  "愿你每次重启都要清缓存。",
+  "祝你一调试，Bug 就消失。",
+];
 const pendingAnimations = [];
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let displayedRoom;
@@ -310,6 +328,51 @@ function showView(view) {
   byId(battle ? "room-name" : "lobby-title").focus({ preventScroll: true });
 }
 
+function bindBossSpeech() {
+  const bubbles = document.querySelectorAll(".boss-line");
+  const announcement = byId("boss-announcement");
+  let lastLine = -1;
+  let lastHover = -Infinity;
+  let idleTimer;
+  let hideTimer;
+
+  function scheduleIdle(delay = 13000 + Math.random() * 8000) {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (document.hidden || !visibleBossLevel || playing || document.querySelector("dialog[open]")) {
+        scheduleIdle();
+        return;
+      }
+      speak();
+    }, delay);
+  }
+
+  function speak(announce = false) {
+    const choices = lastLine < 0 ? bossLines.length : bossLines.length - 1;
+    const pick = Math.floor(Math.random() * choices);
+    lastLine = lastLine >= 0 && pick >= lastLine ? pick + 1 : pick;
+    const line = bossLines[lastLine];
+    for (const bubble of bubbles) bubble.textContent = line;
+    if (announce) announcement.textContent = line;
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      for (const bubble of bubbles) bubble.textContent = "";
+      announcement.textContent = "";
+    }, 4500);
+    scheduleIdle();
+  }
+
+  for (const button of document.querySelectorAll(".boss-trigger")) {
+    button.addEventListener("pointerenter", (event) => {
+      if (event.pointerType !== "mouse" || performance.now() - lastHover < 2500) return;
+      lastHover = performance.now();
+      speak();
+    });
+    button.addEventListener("click", () => speak(true));
+  }
+  scheduleIdle(4500 + Math.random() * 3500);
+}
+
 function message(text, dialog) {
   const target = dialog ? dialog.querySelector(".dialog-message") : byId("action-message");
   target.textContent = text;
@@ -440,4 +503,5 @@ async function init() {
   setInterval(refresh, 3000);
 }
 
+bindBossSpeech();
 void init();

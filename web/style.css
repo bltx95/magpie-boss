@@ -132,10 +132,7 @@ main { padding-block: 1.05rem calc(4rem + env(safe-area-inset-bottom)); }
 .current-info h2 { margin: .4rem 0; font-size: clamp(1.4rem, 3.8vw, 2.15rem); overflow-wrap: anywhere; }
 #lobby-boss { font-size: .88rem; }
 .current-art {
-  display: grid;
-  place-items: center;
   width: clamp(7rem, 16vw, 10rem);
-  height: 7.2rem;
   background: radial-gradient(ellipse, #9670c633 0%, transparent 66%);
 }
 .current-art .monster { width: clamp(4.8rem, 9vw, 6.4rem); }
@@ -198,7 +195,49 @@ progress::-webkit-progress-bar { background: #17101e; border-radius: 999px; }
 progress::-webkit-progress-value { background: linear-gradient(90deg, #b176e9, #ed9ec6); border-radius: 999px; }
 progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec6); border-radius: 999px; }
 
-.monster-slot { position: relative; }
+.monster-slot { position: relative; width: clamp(6.5rem, 20vw, 11rem); }
+.boss-portrait {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(2.55rem, auto);
+  justify-items: center;
+  align-items: start;
+}
+.boss-trigger { padding: 0; border: 0; -webkit-tap-highlight-color: transparent; }
+.boss-trigger:is(:hover, :active) .monster { filter: drop-shadow(0 .3rem .8rem var(--boss-mid)); }
+.boss-line {
+  position: relative;
+  max-width: 100%;
+  padding: .28rem .45rem;
+  border: 1px solid #8f69ac;
+  border-radius: .55rem;
+  background: #2b1e3b;
+  color: #f1dcff;
+  font-size: .74rem;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.boss-line:empty { visibility: hidden; }
+.boss-line::before {
+  content: "";
+  position: absolute;
+  inset: -.27rem auto auto calc(50% - .25rem);
+  width: .45rem;
+  height: .45rem;
+  border: solid #8f69ac;
+  border-width: 1px 0 0 1px;
+  background: inherit;
+  transform: rotate(45deg);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .monster {
   --boss-hue: 287;
   --boss-light: hsl(var(--boss-hue) 90% 81%);
@@ -297,6 +336,7 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 .impact {
   position: absolute;
   inset: 12% -1rem auto;
+  pointer-events: none;
   text-align: center;
   white-space: pre-line;
   font-weight: 800;
@@ -418,8 +458,7 @@ dialog input:not([type="radio"]) {
 .guide-rules dd { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.55; }
 
 @media (max-width: 46rem) {
-  .current-room { grid-template-columns: minmax(0, 1fr) minmax(11rem, 16rem); }
-  .current-art { display: none; }
+  .current-room { grid-template-columns: minmax(0, 1fr) auto minmax(8rem, 13rem); }
   .battle-grid { grid-template-columns: 1fr; }
   .battle-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -433,8 +472,8 @@ dialog input:not([type="radio"]) {
   .view-nav button { flex: 1; }
   .page-heading { align-items: flex-start; flex-direction: column; }
   .toolbar { flex: initial; }
-  .current-room { grid-template-columns: 1fr; gap: .8rem; }
-  .current-health { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .current-room { grid-template-columns: minmax(0, 1fr) auto; gap: .8rem; }
+  .current-health { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .current-health p { align-self: end; }
   #lobby-hp { grid-row: 2; margin-bottom: 0; align-self: start; }
   #open-battle { grid-column: 2; grid-row: 1 / 3; }

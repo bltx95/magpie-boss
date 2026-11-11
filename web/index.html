@@ -44,10 +44,13 @@
           <h2 id="lobby-room-name"></h2>
           <p id="lobby-boss"></p>
         </div>
-        <div class="current-art" aria-hidden="true">
-          <div class="monster" id="lobby-monster">
-            <div class="monster-body"><span class="monster-eyes"></span></div>
-          </div>
+        <div class="current-art boss-portrait">
+          <button class="boss-trigger" type="button" aria-label="听 Boss 说一句">
+            <span class="monster" id="lobby-monster" aria-hidden="true">
+              <span class="monster-body"><span class="monster-eyes"></span></span>
+            </span>
+          </button>
+          <p class="boss-line" aria-hidden="true"></p>
         </div>
         <div class="current-health">
           <p id="lobby-hp-label"></p>
@@ -71,11 +74,14 @@
       </div>
       <div class="battle-grid">
         <section class="encounter" aria-labelledby="boss-name">
-          <div class="monster-slot" aria-hidden="true">
-            <div class="monster" id="monster">
-              <div class="monster-body"><span class="monster-eyes"></span></div>
-            </div>
-            <div id="impact" class="impact"></div>
+          <div class="monster-slot boss-portrait">
+            <button class="boss-trigger" type="button" aria-label="听 Boss 说一句">
+              <span class="monster" id="monster" aria-hidden="true">
+                <span class="monster-body"><span class="monster-eyes"></span></span>
+              </span>
+            </button>
+            <div id="impact" class="impact" aria-hidden="true"></div>
+            <p class="boss-line" aria-hidden="true"></p>
           </div>
           <div class="boss-details">
             <h2 id="boss-name">Boss</h2>
@@ -113,6 +119,7 @@
         <ol id="attack-history" class="attack-history"></ol>
       </section>
     </section>
+    <p id="boss-announcement" class="sr-only" role="status"></p>
   </main>
 
   <button class="secondary guide-button" id="open-guide" type="button" aria-haspopup="dialog" aria-controls="guide-dialog">
