@@ -258,6 +258,42 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
   background: conic-gradient(from 45deg, var(--boss-light), var(--boss-mid), var(--boss-dark), var(--boss-light), var(--boss-mid));
 }
 .monster[data-skin="mirror"] .monster-eyes { inset: 45% 19% auto; height: 9%; }
+
+/* Keep idle motion on the body so attack animations can move the whole sprite. */
+@media (prefers-reduced-motion: no-preference) {
+  .monster-body { animation: boss-breathe 3.6s ease-in-out infinite; }
+  .monster-eyes { animation: boss-blink 5.8s ease-in-out infinite; }
+  .monster[data-skin="ghost"] .monster-body { animation: boss-float 3s ease-in-out infinite; }
+  .monster[data-skin="golem"] .monster-body { animation-duration: 5.2s; }
+  .monster[data-skin="slime"] .monster-body {
+    transform-origin: center bottom;
+    animation: boss-squish 2.8s ease-in-out infinite;
+  }
+  .monster[data-skin="mirror"] .monster-body { animation: boss-sway 4s ease-in-out infinite; }
+}
+
+@keyframes boss-breathe {
+  0%, 100% { transform: none; }
+  50% { transform: translateY(-4%) scale(1.035); }
+}
+@keyframes boss-float {
+  0%, 100% { transform: translateX(-4%) rotate(-3deg); }
+  50% { transform: translate(4%, -13%) rotate(3deg); }
+}
+@keyframes boss-squish {
+  0%, 100% { transform: none; }
+  35% { transform: scale(1.08, .9); }
+  68% { transform: scale(.96, 1.1); }
+}
+@keyframes boss-sway {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: translateY(-5%) rotate(4deg); }
+}
+@keyframes boss-blink {
+  0%, 87%, 94%, 100% { transform: scaleY(1); }
+  90% { transform: scaleY(.1); }
+}
+
 .impact {
   position: absolute;
   inset: 12% -1rem auto;
