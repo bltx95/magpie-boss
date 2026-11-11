@@ -10,7 +10,7 @@
 magpie plugin add magpie-boss
 ```
 
-启用后点侧栏的「magpie-boss」。插件会自动连接[云端大厅](https://room-production-d88962f8.up.railway.app/)。新玩家进入公共大厅，老玩家回到原来的房间。可以创建房间、用 8 位邀请码加入私人房，也可以随时改昵称。
+启用后点侧栏的「magpie-boss」。插件会自动连接[云端大厅](https://room-production-d88962f8.up.railway.app/)，打开当前房间的战斗页。可以随时返回「房间大厅」，创建房间、用 8 位邀请码加入私人房或更改昵称。
 
 插件无需模型账号或 API Key。启用后会从本机 Magpie 用量记录（包括 Magpie 汇总的 Codex 用量）生成攻击。云端接收游戏昵称、攻击标识和日期；Token 数和对话内容留在本机。公开房的昵称、等级和最近战报对同房玩家可见。
 

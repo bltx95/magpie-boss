@@ -1,6 +1,8 @@
 const byId = (id) => document.getElementById(id);
 const embedToken = document.documentElement.dataset.embedToken;
 const hosted = document.documentElement.dataset.hosted === "true";
+const inviteFromUrl = new URLSearchParams(location.search).get("invite");
+const hasInvite = /^\d{8}$/.test(inviteFromUrl ?? "");
 const viewerPattern = /^web_[a-f0-9]{64}$/;
 const viewerToken = hosted ? browserIdentity() : null;
 const format = new Intl.NumberFormat("zh-CN");
@@ -37,6 +39,7 @@ let visibleBossLevel;
 let lobbyRevision;
 let displayedNickname;
 let playing = false;
+let openCurrentRoom = !hasInvite;
 
 function browserIdentity() {
   const fromMagpie = new URLSearchParams(location.hash.slice(1)).get("viewer");
@@ -296,6 +299,10 @@ function render({ room, rooms = [], player, usage, usageOnline, roomOnline, invi
     item.textContent = `${member.name}${member.id === player.id ? "（你）" : ""} · Lv.${member.level}`;
     return item;
   }));
+  // Keep pairing available while an unbound visitor is still in the default lobby.
+  if (openCurrentRoom && (!hosted || bound || room.id !== "lobby") && !document.querySelector("dialog[open]")) {
+    showView("battle");
+  }
 }
 
 async function refresh() {
@@ -315,6 +322,7 @@ async function refresh() {
 }
 
 function showView(view) {
+  openCurrentRoom = false;
   const battle = view === "battle";
   byId("lobby-view").hidden = battle;
   byId("battle-view").hidden = !battle;
@@ -489,15 +497,14 @@ byId("copy-pair").addEventListener("click", () => copyInvite(byId("pair-code"), 
 
 async function init() {
   await refresh();
-  const fromLink = new URLSearchParams(location.search).get("invite");
-  if (/^\d{8}$/.test(fromLink || "")) {
-    byId("join-code").value = fromLink;
+  if (hasInvite) {
+    byId("join-code").value = inviteFromUrl;
     const dialog = openDialog("join-dialog");
     try {
-      const { name, owner } = await request("/api/invite", { code: fromLink });
-      if (dialog.open && byId("join-code").value === fromLink) message(`${owner} 邀请你加入「${name}」。`, dialog);
+      const { name, owner } = await request("/api/invite", { code: inviteFromUrl });
+      if (dialog.open && byId("join-code").value === inviteFromUrl) message(`${owner} 邀请你加入「${name}」。`, dialog);
     } catch (error) {
-      if (dialog.open && byId("join-code").value === fromLink) message(error.message, dialog);
+      if (dialog.open && byId("join-code").value === inviteFromUrl) message(error.message, dialog);
     }
   }
   setInterval(refresh, 3000);
