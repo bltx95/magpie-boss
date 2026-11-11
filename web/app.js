@@ -70,11 +70,12 @@ async function playAttacks() {
   const impact = byId("impact");
   try {
     while (pendingAnimations.length) {
-      const { damage, outcome, kind, hp, skillName, bossLevel, comboBonus } = pendingAnimations.shift();
+      const { damage, outcome, kind, hp, skillName, bossLevel, comboBonus, killXp } = pendingAnimations.shift();
       if (reducedMotion.matches || document.hidden || byId("battle-view").hidden) continue;
       const effect = kind ?? outcome;
       impact.dataset.outcome = effect;
-      const damageText = damage ? `−${format.format(damage)} HP${hp === 0 ? " · 击败" : ""}` : "闪避";
+      const victory = hp === 0 ? ` · 击败${killXp ? ` +${format.format(killXp)} XP` : ""}` : "";
+      const damageText = damage ? `−${format.format(damage)} HP${victory}` : "闪避";
       const earlierBoss = bossLevel && bossLevel !== visibleBossLevel;
       const headline = [
         earlierBoss ? `第 ${format.format(bossLevel)} 关` : "", kind && outcomeLabels[kind],
@@ -132,7 +133,8 @@ function renderHistory(room, player) {
     time.textContent = attackTime.format(new Date(attack.settledAt));
     const details = document.createElement("span");
     const level = attack.bossLevel ? `第 ${attack.bossLevel} 关 · ` : "";
-    details.textContent = `${level}+${attack.xp} XP · ${attack.hp ? `Boss 剩 ${format.format(attack.hp)} HP` : "Boss 已击败"}`;
+    const reward = attack.killXp ? `（最后一击 +${format.format(attack.killXp)} XP）` : "";
+    details.textContent = `${level}+${format.format(attack.xp)} XP${reward} · ${attack.hp ? `Boss 剩 ${format.format(attack.hp)} HP` : "Boss 已击败"}`;
     item.append(result, details, time);
     if (attack.baseDamage != null) {
       const damage = document.createElement("span");
@@ -173,8 +175,15 @@ function renderBoss(room) {
   const countdown = byId("skill-cooldown");
   countdown.hidden = room.nextSkillIn == null;
   if (!countdown.hidden) {
-    countdown.textContent = room.nextSkillIn === 1 ? "下一击触发" : `还有 ${room.nextSkillIn} 次攻击触发`;
+    if (room.skillTurnsLeft) {
+      countdown.textContent = boss.skin === "ghost" ? "残影生效：下一击减伤" : `护盾还持续 ${room.skillTurnsLeft} 次攻击`;
+    } else {
+      countdown.textContent = room.nextSkillIn === 1 ? "下一击触发" : `还有 ${room.nextSkillIn} 次攻击触发`;
+    }
   }
+  const protection = byId("finisher-protection");
+  protection.hidden = !boss.finisherThreshold;
+  if (!protection.hidden) protection.textContent = `斩杀与秒杀只在血量 ≤ ${boss.finisherThreshold}% 且未触发技能时生效。`;
 }
 
 function renderLobby(rooms, room, player, localLobby) {
@@ -357,6 +366,7 @@ for (const id of ["show-battle", "open-battle"]) byId(id).addEventListener("clic
 byId("open-join").addEventListener("click", () => openDialog("join-dialog"));
 byId("open-create").addEventListener("click", () => openDialog("create-dialog"));
 byId("open-share").addEventListener("click", () => openDialog("share-dialog"));
+byId("open-guide").addEventListener("click", () => byId("guide-dialog").showModal());
 byId("open-pair").addEventListener("click", async () => {
   const dialog = openDialog("pair-dialog");
   byId("pair-code").value = "";

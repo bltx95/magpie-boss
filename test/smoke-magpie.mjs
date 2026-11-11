@@ -166,7 +166,7 @@ try {
   assert.deepEqual(joinedB.usage, { calls: 1, tokens: 100, attacks: 1 });
   assert.equal(joinedA.room.attacks.length, 2);
   assert.deepEqual(joinedA.room.attacks, joinedB.room.attacks);
-  await checkBrowser(b.local, "命中 · 10 点伤害", "10 / 100 XP");
+  await checkBrowser(b.local, "命中 · 10 点伤害", "10 / 250 XP", 'id="open-guide"', "玩法指引");
   console.log("没有打开房间页面时，两次真实网关请求让同一只 Boss 从 60 HP 降到 40 HP。");
 
   for (let attack = 0; attack < 3; attack++) await a.call();
@@ -181,10 +181,11 @@ try {
   assert.equal(levelTwo.room.maxHp, 80);
   assert.equal(levelTwo.room.attacks[0].hp, 0);
   assert.equal(levelTwo.room.attacks[0].bossLevel, 1);
+  assert.equal(levelTwo.room.attacks[0].killXp, 20);
   await a.call();
   const progressed = await until(a.snapshot, (state) => state.room.hp === 70);
   assert.equal(progressed.room.attacks[0].bossLevel, 2);
-  await checkBrowser(a.local, "延迟幽灵 · 第 2 关", "相位闪避", 'data-skin="ghost"');
+  await checkBrowser(a.local, "延迟幽灵 · 第 2 关", "相位闪避", 'data-skin="ghost"', "最后一击 +20 XP");
   console.log("缓存护盾实际抵消了伤害，击败缓存怪后立即出现会相位闪避的延迟幽灵。");
 
   b.child.kill();

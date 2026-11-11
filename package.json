@@ -1,6 +1,6 @@
 {
   "name": "magpie-boss",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "main": "./plugin.mjs",
@@ -9,10 +9,9 @@
     "test": "bun test"
   },
   "magpie": {
-    "name": "Magpie Boss",
+    "name": "magpie-boss",
     "page": {
-      "title": "Boss Room",
-      "titles": { "zh": "Boss 房间", "zh-TW": "Boss 房間" },
+      "title": "magpie-boss",
       "file": "page/index.html"
     },
     "options": {

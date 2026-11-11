@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Magpie Boss</title>
+  <title>magpie-boss</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/format.js" defer></script>
   <script src="/app.js" defer></script>
@@ -11,7 +11,7 @@
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Magpie Boss</div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>magpie-boss</div>
       <nav class="view-nav" aria-label="游戏导航">
         <button id="show-lobby" type="button" aria-controls="lobby-view" aria-pressed="true">房间大厅</button>
         <button id="show-battle" type="button" aria-controls="battle-view" aria-pressed="false">战斗</button>
@@ -86,6 +86,7 @@
               <strong id="skill-name"></strong>
               <p id="skill-description"></p>
               <p id="skill-cooldown" hidden></p>
+              <p id="finisher-protection" hidden></p>
             </div>
             <p id="victories" class="victories"></p>
           </div>
@@ -113,6 +114,22 @@
       </section>
     </section>
   </main>
+
+  <button class="secondary guide-button" id="open-guide" type="button" aria-haspopup="dialog" aria-controls="guide-dialog">
+    <span class="guide-icon" aria-hidden="true">?</span> 玩法指引
+  </button>
+  <dialog id="guide-dialog" aria-labelledby="guide-title">
+    <div class="dialog-heading">
+      <h2 id="guide-title">玩法指引</h2>
+      <button class="icon-button" type="button" data-close aria-label="关闭">×</button>
+    </div>
+    <dl class="guide-rules">
+      <div><dt>加入房间</dt><dd>进入公共大厅或用邀请码加入同事的房间。同房玩家一起对付当前 Boss。</dd></div>
+      <div><dt>自动攻击</dt><dd>启用 Magpie 插件后，每次成功的模型调用都会攻击一次。攻击可能暴击或追击，团队连续命中 5 次可追加伤害。</dd></div>
+      <div><dt>应对进化技能</dt><dd>从第 6 关开始，Boss 会用护盾断连击、用残影削弱下一击，或反制暴击和追击。战斗页会显示当前技能、倒计时和斩杀条件。</dd></div>
+      <div><dt>升级与最后一击</dt><dd>第一级升到第二级需 250 XP，之后每一级再加 100 XP。击败 Boss 的最后一击额外获得 20–80 XP，战报会单独标出奖励。</dd></div>
+    </dl>
+  </dialog>
 
   <dialog id="create-dialog" aria-labelledby="create-title">
     <div class="dialog-heading">
@@ -180,7 +197,7 @@
       <h2 id="pair-title">绑定 Magpie</h2>
       <button class="icon-button" type="button" data-close aria-label="关闭">×</button>
     </div>
-    <p>把配对码填到 Magpie Boss 的插件选项 <code>pairingCode</code>，保存后网页会显示你的 Magpie 角色。配对码 10 分钟内有效，只能使用一次。</p>
+    <p>把配对码填到 magpie-boss 的插件选项 <code>pairingCode</code>，保存后网页会显示你的 Magpie 角色。配对码 10 分钟内有效，只能使用一次。</p>
     <label for="pair-code">配对码</label>
     <div class="share-row">
       <input id="pair-code" type="text" readonly>

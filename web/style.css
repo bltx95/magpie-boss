@@ -107,7 +107,7 @@ button:disabled { opacity: .55; cursor: default; }
 }
 #profile-name { min-width: 0; max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-main { padding-block: 1.05rem 3rem; }
+main { padding-block: 1.05rem calc(4rem + env(safe-area-inset-bottom)); }
 .connection { display: flex; align-items: center; gap: .45rem; margin-bottom: .9rem; font-size: .75rem; }
 .connection-dot { width: .36rem; height: .36rem; flex: 0 0 .36rem; border-radius: 50%; background: #d7ad7c; }
 .connection[data-online="true"] .connection-dot { background: #82d9b3; box-shadow: 0 0 .45rem #82d9b354; }
@@ -358,6 +358,28 @@ dialog input:not([type="radio"]) {
 .share-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .8rem; }
 .share-row button { flex: 0 0 auto; }
 #invite-code { flex: 1; color: var(--accent); font: 700 1.4rem ui-monospace, monospace; letter-spacing: .08em; user-select: all; }
+.guide-button {
+  position: fixed;
+  z-index: 2;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  gap: .45rem;
+  border-color: #7954a2;
+  background: #2b203b;
+  box-shadow: 0 .4rem 1rem #09061180;
+}
+.guide-icon {
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: .72rem;
+}
+.guide-rules { display: grid; gap: .9rem; }
+.guide-rules dt { margin-bottom: .25rem; color: var(--accent); font-weight: 700; }
+.guide-rules dd { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.55; }
 
 @media (max-width: 46rem) {
   .current-room { grid-template-columns: minmax(0, 1fr) minmax(11rem, 16rem); }

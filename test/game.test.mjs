@@ -62,6 +62,30 @@ test("later forms change their look and strengthen skills without nullifying all
   expect(resolveAttack(bossForLevel(100_000), 1, 10, 1_000_000, 1_000_000).damage).toBeGreaterThan(0);
 });
 
+test("evolved bosses change the timing and payoff of combos, criticals and finishing rolls", () => {
+  const cache = bossForLevel(6);
+  expect(resolveAttack(cache, 3, 99, 100, 171, { combo: 4 })).toMatchObject({
+    combo: 0, comboBonus: 0, damage: 6,
+  });
+  const lateCache = bossForLevel(16);
+  expect([3, 4, 5].map((turn) => resolveAttack(lateCache, turn, 99, 200, 200).damage)).toEqual([4, 4, 10]);
+  expect(resolveAttack(bossForLevel(7), 4, 99, 100, 200, { combo: 4 })).toMatchObject({
+    outcome: "dodge", hp: 100, combo: 0,
+  });
+  expect(resolveAttack(bossForLevel(7), 5, 99, 100, 200)).toMatchObject({ damage: 5, hp: 95 });
+  expect(resolveAttack(bossForLevel(8), 3, 99, 100, 200)).toMatchObject({ damage: 5, xp: 4, hp: 97 });
+  expect(resolveAttack(bossForLevel(9), 2, 99, 100, 250, { combo: 4 })).toMatchObject({
+    damage: 10, hp: 102, combo: 0, comboBonus: 0,
+  });
+  expect(resolveAttack(bossForLevel(10), 1, 40, 100, 250, { combo: 4 })).toMatchObject({
+    kind: "followUp", damage: 5, combo: 0, comboBonus: 0,
+  });
+  expect(resolveAttack(cache, 1, 99, 41, 200, { finisherRoll: 0 }).kind).toBeNull();
+  expect(resolveAttack(cache, 1, 99, 40, 200, { finisherRoll: 0 }).kind).toBe("instant");
+  expect(resolveAttack(cache, 3, 99, 40, 200, { finisherRoll: 0 }).kind).toBeNull();
+  expect([6, 11, 16, 101].map((level) => bossForLevel(level).finisherThreshold)).toEqual([20, 15, 10, 10]);
+});
+
 test("rolls damage tiers, preserves skill mitigation, and gates finishers on health and dodges", () => {
   const cache = bossForLevel(1);
   expect(resolveAttack(cache, 1, 99, 60, 60, { baseDamage: 7 })).toMatchObject({ damage: 7, baseDamage: 7 });
@@ -151,9 +175,9 @@ test("players can attack without a daily cap and share stronger successive bosse
     expect(next.room).toMatchObject({ hp: 100, defeated: 2, bossLevel: 3, maxHp: 100 });
     expect(next.room.attacks[0]).toMatchObject({ bossLevel: 2, hp: 0 });
     expect(next.room.attacks.find((attack) => attack.skillName === "相位闪避")).toMatchObject({ outcome: "dodge", damage: 0 });
-    expect(next.player.level).toBe(2);
+    expect(next.player).toMatchObject({ xp: 143, level: 1, levelXp: 143, nextLevelXp: 250 });
     expect((await (await send("/api/state", 1)).json()).room).toEqual(next.room);
-    expect((await (await send("/api/home", 2, {})).json()).player.level).toBe(2);
+    expect((await (await send("/api/home", 2, {})).json()).player.level).toBe(1);
   } finally {
     close();
   }
@@ -172,33 +196,38 @@ test("raises level thresholds for new players and preserves existing levels and 
     }
     const db = new Database(path);
     try {
-      db.exec("ALTER TABLE players DROP COLUMN starting_level; UPDATE players SET xp = 149;");
+      db.exec("ALTER TABLE players DROP COLUMN level_start_xp; UPDATE players SET starting_level = 3, xp = 259;");
     } finally {
       db.close();
     }
     const current = useRoom(() => 99, path);
     try {
       const before = await (await current.send("/api/state", 1)).json();
-      expect(before.player).toMatchObject({ xp: 149, level: 3, levelXp: 49, nextLevelXp: 150 });
-      const events = Array.from({ length: 11 }, (_, index) => event(index + 1));
-      const almost = await (await current.send("/api/attacks", 1, { events })).json();
-      expect(almost.player).toMatchObject({ xp: 249, level: 3, levelXp: 149, nextLevelXp: 150 });
-      const next = await (await current.send("/api/attacks", 1, { events: [event(12)] })).json();
-      expect(next.player).toMatchObject({ xp: 259, level: 4, levelXp: 9, nextLevelXp: 175 });
+      expect(before.player).toMatchObject({ xp: 259, level: 4, levelXp: 9, nextLevelXp: 550 });
 
-      await current.send("/api/player", 2, {});
+      const fresh = await (await current.send("/api/player", 2, {})).json();
+      expect(fresh.player).toMatchObject({ xp: 0, level: 1, levelXp: 0, nextLevelXp: 250 });
       await current.send("/api/home", 2, {});
-      const nine = await (await current.send("/api/attacks", 2, { events: events.slice(0, 9) })).json();
-      expect(nine.player).toMatchObject({ xp: 90, level: 1, levelXp: 90, nextLevelXp: 100 });
-      const ten = await (await current.send("/api/attacks", 2, { events: [event(10)] })).json();
-      expect(ten.player).toMatchObject({ xp: 100, level: 2, levelXp: 0, nextLevelXp: 125 });
+      const db = new Database(path);
+      try {
+        db.query("UPDATE players SET xp = ? WHERE id = ?").run(799, before.player.id);
+        db.query("UPDATE players SET xp = ? WHERE id = ?").run(240, fresh.player.id);
+      } finally {
+        db.close();
+      }
+      const almost = await (await current.send("/api/state", 1)).json();
+      expect(almost.player).toMatchObject({ xp: 799, level: 4, levelXp: 549, nextLevelXp: 550 });
+      const next = await (await current.send("/api/attacks", 1, { events: [event(1)] })).json();
+      expect(next.player).toMatchObject({ xp: 809, level: 5, levelXp: 9, nextLevelXp: 650 });
+      const firstLevelUp = await (await current.send("/api/attacks", 2, { events: [event(1)] })).json();
+      expect(firstLevelUp.player).toMatchObject({ xp: 250, level: 2, levelXp: 0, nextLevelXp: 350 });
     } finally {
       current.close();
     }
     const restarted = useRoom(() => 99, path);
     try {
       const state = await (await restarted.send("/api/state", 1)).json();
-      expect(state.player).toMatchObject({ xp: 259, level: 4, levelXp: 9, nextLevelXp: 175 });
+      expect(state.player).toMatchObject({ xp: 809, level: 5, levelXp: 9, nextLevelXp: 650 });
     } finally {
       restarted.close();
     }
@@ -296,13 +325,14 @@ test("stores each combat outcome once, with actual damage and shared history", a
     expect(first.player.xp).toBe(15);
     const second = await (await send("/api/attacks", 2, { events })).json();
     expect(second.room.attacks[0]).toMatchObject({
-      outcome: "critical", playerName: "Bob", damage: 13, hp: 0,
+      outcome: "critical", playerName: "Bob", damage: 13, hp: 0, xp: 30, killXp: 20,
     });
     expect(second.room.attacks).toHaveLength(6);
     expect(second.room).toMatchObject({ defeated: 1, bossLevel: 2, hp: 80 });
     expect((await (await send("/api/state", 1)).json()).room.attacks).toEqual(second.room.attacks);
     const replay = await (await send("/api/attacks", 2, { events })).json();
     expect(replay.room.attacks).toEqual(second.room.attacks);
+    expect(replay.player.xp).toBe(50);
     expect(rolls).toEqual([]);
   } finally {
     close();
@@ -321,12 +351,16 @@ test("upgrades the previous room database without losing progress or repeating o
     db.exec(`
       ALTER TABLE rooms DROP COLUMN boss_turn;
       ALTER TABLE rooms DROP COLUMN combo;
+      ALTER TABLE rooms DROP COLUMN max_hp;
+      ALTER TABLE players DROP COLUMN starting_level;
+      ALTER TABLE players DROP COLUMN level_start_xp;
       ALTER TABLE attack_results DROP COLUMN skill_detail;
       ALTER TABLE attack_results DROP COLUMN skill_name;
       ALTER TABLE attack_results DROP COLUMN boss_level;
       ALTER TABLE attack_results DROP COLUMN attack_kind;
       ALTER TABLE attack_results DROP COLUMN base_damage;
       ALTER TABLE attack_results DROP COLUMN combo_bonus;
+      ALTER TABLE attack_results DROP COLUMN kill_xp;
     `);
     db.close();
     const upgraded = useRoom(() => 10, path);
@@ -334,14 +368,53 @@ test("upgrades the previous room database without losing progress or repeating o
       const state = await (await upgraded.send("/api/state", 1)).json();
       expect(state.room).toMatchObject({ code: before.room.code, hp: 50, bossLevel: 1, nextSkillIn: 4 });
       expect(state.room.attacks).toHaveLength(1);
-      expect(state.room.attacks[0]).toMatchObject({ damage: 10, bossLevel: null, kind: null, baseDamage: null });
-      expect(state.player.xp).toBe(10);
+      expect(state.room.attacks[0]).toMatchObject({ damage: 10, bossLevel: null, kind: null, baseDamage: null, killXp: 0 });
+      expect(state.player).toMatchObject({ xp: 10, level: 1, levelXp: 10 });
       const next = await (await upgraded.send("/api/attacks", 1, { events: [event(1), event(2)] })).json();
       expect(next.room.hp).toBe(30);
       expect(next.room.attacks).toHaveLength(2);
       expect(next.room.attacks[0]).toMatchObject({ outcome: "critical", damage: 20, bossLevel: 1 });
     } finally {
       upgraded.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("preserves an active boss's original maximum and applies the steeper curve to the next boss", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-hp-upgrade-"));
+  const path = join(directory, "room.sqlite");
+  try {
+    const old = useRoom(() => 99, path);
+    try {
+      await old.send("/api/player", 1, {});
+    } finally {
+      old.close();
+    }
+    const db = new Database(path);
+    try {
+      db.exec("ALTER TABLE rooms DROP COLUMN max_hp; UPDATE rooms SET defeated = 5, hp = 1 WHERE id = 'lobby';");
+    } finally {
+      db.close();
+    }
+    const upgraded = useRoom(() => 99, path);
+    try {
+      const before = await (await upgraded.send("/api/state", 1)).json();
+      expect(before.room).toMatchObject({ bossLevel: 6, hp: 1, maxHp: 160 });
+      const after = await (await upgraded.send("/api/attacks", 1, { events: [event(1)] })).json();
+      expect(after.room).toMatchObject({ bossLevel: 7, hp: 204, maxHp: 204 });
+      expect(after.room.attacks[0]).toMatchObject({ bossLevel: 6, damage: 1, killXp: 35, xp: 45 });
+    } finally {
+      upgraded.close();
+    }
+    const restarted = useRoom(() => 99, path);
+    try {
+      const state = await (await restarted.send("/api/state", 1)).json();
+      expect(state.room).toMatchObject({ bossLevel: 7, hp: 204, maxHp: 204 });
+      expect(state.player.xp).toBe(45);
+    } finally {
+      restarted.close();
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -588,7 +661,7 @@ test("local room serves browser assets and validates invitation actions", async 
   }));
   const home = await request("/");
   expect(home.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
-  expect(await home.text()).toContain("Magpie Boss");
+  expect(await home.text()).toContain("magpie-boss");
   expect((await request("/api/join", "invalid json")).status).toBe(400);
   expect((await request("/api/join", '{"code":12345678}')).status).toBe(400);
   expect(await (await request("/api/invite", '{"code":"12345678"}')).json()).toEqual({ code: "12345678" });
