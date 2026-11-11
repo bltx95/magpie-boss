@@ -245,7 +245,12 @@ function render({ room, rooms = [], player, usage, usageOnline, roomOnline, invi
   renderLobby(rooms, room, player, localLobby);
   byId("room-name").textContent = room.name;
   renderBoss(room);
-  byId("level").textContent = player.level;
+  byId("level").textContent = format.format(player.level);
+  const levelProgress = byId("level-progress");
+  levelProgress.hidden = !player.nextLevelXp;
+  if (!levelProgress.hidden) {
+    levelProgress.textContent = `${format.format(player.levelXp)} / ${format.format(player.nextLevelXp)} XP`;
+  }
   byId("hp").max = room.maxHp;
   byId("hp").value = room.hp;
   byId("hp-label").textContent = room.hp ? `${room.hp} / ${room.maxHp} HP` : "Boss 已击败";

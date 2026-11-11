@@ -151,11 +151,59 @@ test("players can attack without a daily cap and share stronger successive bosse
     expect(next.room).toMatchObject({ hp: 100, defeated: 2, bossLevel: 3, maxHp: 100 });
     expect(next.room.attacks[0]).toMatchObject({ bossLevel: 2, hp: 0 });
     expect(next.room.attacks.find((attack) => attack.skillName === "相位闪避")).toMatchObject({ outcome: "dodge", damage: 0 });
-    expect(next.player.level).toBe(3);
+    expect(next.player.level).toBe(2);
     expect((await (await send("/api/state", 1)).json()).room).toEqual(next.room);
-    expect((await (await send("/api/home", 2, {})).json()).player.level).toBe(3);
+    expect((await (await send("/api/home", 2, {})).json()).player.level).toBe(2);
   } finally {
     close();
+  }
+});
+
+test("raises level thresholds for new players and preserves existing levels and remaining XP", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-level-upgrade-"));
+  const path = join(directory, "room.sqlite");
+  try {
+    const old = useRoom(() => 99, path);
+    try {
+      await old.send("/api/player", 1, { nickname: "老玩家" });
+      await old.send("/api/home", 1, {});
+    } finally {
+      old.close();
+    }
+    const db = new Database(path);
+    try {
+      db.exec("ALTER TABLE players DROP COLUMN starting_level; UPDATE players SET xp = 149;");
+    } finally {
+      db.close();
+    }
+    const current = useRoom(() => 99, path);
+    try {
+      const before = await (await current.send("/api/state", 1)).json();
+      expect(before.player).toMatchObject({ xp: 149, level: 3, levelXp: 49, nextLevelXp: 150 });
+      const events = Array.from({ length: 11 }, (_, index) => event(index + 1));
+      const almost = await (await current.send("/api/attacks", 1, { events })).json();
+      expect(almost.player).toMatchObject({ xp: 249, level: 3, levelXp: 149, nextLevelXp: 150 });
+      const next = await (await current.send("/api/attacks", 1, { events: [event(12)] })).json();
+      expect(next.player).toMatchObject({ xp: 259, level: 4, levelXp: 9, nextLevelXp: 175 });
+
+      await current.send("/api/player", 2, {});
+      await current.send("/api/home", 2, {});
+      const nine = await (await current.send("/api/attacks", 2, { events: events.slice(0, 9) })).json();
+      expect(nine.player).toMatchObject({ xp: 90, level: 1, levelXp: 90, nextLevelXp: 100 });
+      const ten = await (await current.send("/api/attacks", 2, { events: [event(10)] })).json();
+      expect(ten.player).toMatchObject({ xp: 100, level: 2, levelXp: 0, nextLevelXp: 125 });
+    } finally {
+      current.close();
+    }
+    const restarted = useRoom(() => 99, path);
+    try {
+      const state = await (await restarted.send("/api/state", 1)).json();
+      expect(state.player).toMatchObject({ xp: 259, level: 4, levelXp: 9, nextLevelXp: 175 });
+    } finally {
+      restarted.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

@@ -166,7 +166,7 @@ try {
   assert.deepEqual(joinedB.usage, { calls: 1, tokens: 100, attacks: 1 });
   assert.equal(joinedA.room.attacks.length, 2);
   assert.deepEqual(joinedA.room.attacks, joinedB.room.attacks);
-  await checkBrowser(b.local, "命中 · 10 点伤害");
+  await checkBrowser(b.local, "命中 · 10 点伤害", "10 / 100 XP");
   console.log("没有打开房间页面时，两次真实网关请求让同一只 Boss 从 60 HP 降到 40 HP。");
 
   for (let attack = 0; attack < 3; attack++) await a.call();

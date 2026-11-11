@@ -289,6 +289,7 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 .stats > div { padding: .5rem .62rem; background: #15121d; border-radius: .45rem; }
 .stats dt { font-size: .74rem; }
 .stats dd { margin: .22rem 0 0; font-weight: 720; font-size: 1.15rem; overflow-wrap: anywhere; }
+#level-progress { color: #e4c9ff; font-size: .72rem; font-weight: 500; }
 .member-list { list-style: none; padding: 0; margin: 0; max-height: 8.5rem; overflow-y: auto; }
 .member-list li { padding: .3rem 0; color: #e6ddf1; font-size: .84rem; overflow-wrap: anywhere; }
 .history-panel { margin-top: .8rem; }

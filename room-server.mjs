@@ -12,11 +12,31 @@ const PAIRING_LIFETIME = 10 * 60 * 1000;
 const EVENT_ID = /^[a-f0-9]{64}$/;
 const FIRST_BOSS_HP = 60;
 const HP_PER_LEVEL = 20;
+const LEGACY_XP_PER_LEVEL = 50;
+const FIRST_LEVEL_XP = 100;
+const XP_STEP_PER_LEVEL = 25;
 const HISTORY_LIMIT = 30;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLIC_ROOM = "lobby";
 
 const bossMaxHp = (defeated) => FIRST_BOSS_HP + defeated * HP_PER_LEVEL;
+
+function withLevel({ id, name, xp, starting_level: startingLevel }) {
+  const remaining = xp - (startingLevel - 1) * LEGACY_XP_PER_LEVEL;
+  const firstCost = FIRST_LEVEL_XP + (startingLevel - 1) * XP_STEP_PER_LEVEL;
+  const costFor = (levels) => levels * (firstCost + (levels - 1) * XP_STEP_PER_LEVEL / 2);
+  let gained = 0;
+  let upper = Math.floor(remaining / firstCost) + 1;
+  while (gained + 1 < upper) {
+    const middle = Math.floor((gained + upper) / 2);
+    if (costFor(middle) <= remaining) gained = middle;
+    else upper = middle;
+  }
+  return {
+    id, name, xp, level: startingLevel + gained,
+    levelXp: remaining - costFor(gained), nextLevelXp: firstCost + gained * XP_STEP_PER_LEVEL,
+  };
+}
 
 function invitePage(room, code, hosted) {
   const escape = (value) => value.replace(/[&<>"']/g, (character) => ({
@@ -74,7 +94,8 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
     );
     CREATE TABLE IF NOT EXISTS players (
       id TEXT PRIMARY KEY REFERENCES rooms(id), name TEXT NOT NULL,
-      room_id TEXT NOT NULL REFERENCES rooms(id), xp INTEGER NOT NULL DEFAULT 0
+      room_id TEXT NOT NULL REFERENCES rooms(id), xp INTEGER NOT NULL DEFAULT 0,
+      starting_level INTEGER NOT NULL DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS players_by_room ON players(room_id);
     CREATE TABLE IF NOT EXISTS attacks (
@@ -106,6 +127,10 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
     addColumn("rooms", "combo", "INTEGER NOT NULL DEFAULT 0");
     addColumn("rooms", "owner_id", "TEXT");
     addColumn("rooms", "visibility", "TEXT NOT NULL DEFAULT 'private'");
+    if (!column.get("players", "starting_level")) {
+      addColumn("players", "starting_level", "INTEGER NOT NULL DEFAULT 1");
+      db.query("UPDATE players SET starting_level = 1 + CAST(xp / ? AS INTEGER)").run(LEGACY_XP_PER_LEVEL);
+    }
     addColumn("attack_results", "boss_level", "INTEGER");
     addColumn("attack_results", "skill_name", "TEXT");
     addColumn("attack_results", "skill_detail", "TEXT");
@@ -122,16 +147,13 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
     FROM rooms JOIN players ON players.id = rooms.owner_id WHERE rooms.code = ?
   `);
   const roomById = db.query("SELECT id, owner_id, visibility FROM rooms WHERE id = ?");
-  const player = db.query("SELECT id, name, room_id, xp FROM players WHERE id = ?");
+  const player = db.query("SELECT id, name, room_id, xp, starting_level FROM players WHERE id = ?");
   const state = db.transaction((id) => {
     const self = player.get(id);
     const { boss_turn: turn, owner_id: ownerId, ...room } = db.query(`
       SELECT id, name, code, hp, defeated, boss_turn, combo, owner_id, visibility FROM rooms WHERE id = ?
     `).get(self.room_id);
-    const members = db.query("SELECT id, name, xp FROM players WHERE room_id = ? ORDER BY name, id").all(room.id);
-    const withLevel = (member) => ({
-      id: member.id, name: member.name, xp: member.xp, level: 1 + Math.floor(member.xp / 50),
-    });
+    const members = db.query("SELECT id, name, xp, starting_level FROM players WHERE room_id = ? ORDER BY name, id").all(room.id);
     const attacks = db.query(`
       SELECT attack_results.id, player_id AS playerId, players.name AS playerName,
         outcome, damage, attack_results.xp, attack_results.hp, settled_at AS settledAt,
