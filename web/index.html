@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN" data-embed-token="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Magpie Boss</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/format.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Magpie Boss</div>
+      <nav class="view-nav" aria-label="游戏导航">
+        <button id="show-lobby" type="button" aria-controls="lobby-view" aria-pressed="true">房间大厅</button>
+        <button id="show-battle" type="button" aria-controls="battle-view" aria-pressed="false">战斗</button>
+      </nav>
+      <button class="profile-button" id="open-profile" type="button" aria-label="更改昵称" disabled>
+        <span id="profile-initial" class="profile-initial" aria-hidden="true">·</span>
+        <span id="profile-name">玩家</span>
+      </button>
+    </div>
+  </header>
+  <main>
+    <div class="connection"><span class="connection-dot" aria-hidden="true"></span><p id="status" role="status">正在连接房间…</p></div>
+    <p id="action-message" class="notice" role="status"></p>
+
+    <section id="lobby-view" aria-labelledby="lobby-title">
+      <div class="page-heading">
+        <div>
+          <h1 id="lobby-title" tabindex="-1">房间大厅</h1>
+          <p id="lobby-scope" class="scope" hidden>本机大厅</p>
+        </div>
+        <div class="toolbar">
+          <button class="secondary" id="open-join" type="button" disabled>输入邀请码</button>
+          <button class="primary" id="open-create" type="button" disabled><span aria-hidden="true">+</span> 创建房间</button>
+        </div>
+      </div>
+      <article class="current-room" id="current-room" hidden aria-labelledby="lobby-room-name">
+        <div class="current-info">
+          <p class="current-caption">当前房间</p>
+          <h2 id="lobby-room-name"></h2>
+          <p id="lobby-boss"></p>
+        </div>
+        <div class="current-art" aria-hidden="true">
+          <div class="monster" id="lobby-monster">
+            <div class="monster-body"><span class="monster-eyes"></span></div>
+          </div>
+        </div>
+        <div class="current-health">
+          <p id="lobby-hp-label"></p>
+          <progress id="lobby-hp" aria-label="当前 Boss 生命值"></progress>
+          <button class="secondary" id="open-battle" type="button">查看战斗 <span aria-hidden="true">↗</span></button>
+        </div>
+      </article>
+      <section class="room-browser" aria-labelledby="room-list-title">
+        <h2 id="room-list-title">其他房间</h2>
+        <p id="room-list-empty" class="empty-state" hidden>暂无其他可加入的房间。</p>
+        <ul id="room-list" class="room-list"></ul>
+      </section>
+    </section>
+
+    <section id="battle-view" aria-labelledby="room-name" hidden>
+      <div class="page-heading">
+        <h1 id="room-name" tabindex="-1">正在连接房间</h1>
+        <div class="toolbar">
+          <button class="secondary" id="open-share" type="button" hidden>邀请同事</button>
+        </div>
+      </div>
+      <div class="battle-grid">
+        <section class="encounter" aria-labelledby="boss-name">
+          <div class="monster-slot" aria-hidden="true">
+            <div class="monster" id="monster">
+              <div class="monster-body"><span class="monster-eyes"></span></div>
+            </div>
+            <div id="impact" class="impact"></div>
+          </div>
+          <div class="boss-details">
+            <h2 id="boss-name">Boss</h2>
+            <p id="hp-label">等待房间数据</p>
+            <progress id="hp" aria-label="Boss 生命值"></progress>
+            <p id="team-combo" title="同一房间连续命中时累计，第 5 次命中获得额外伤害。" hidden></p>
+            <div class="boss-skill" id="boss-skill" hidden>
+              <strong id="skill-name"></strong>
+              <p id="skill-description"></p>
+              <p id="skill-cooldown" hidden></p>
+            </div>
+            <p id="victories" class="victories"></p>
+          </div>
+        </section>
+        <aside class="battle-sidebar" aria-label="个人和房间信息">
+          <section class="panel" aria-labelledby="personal">
+            <h2 id="personal">我的今日战绩</h2>
+            <dl class="stats">
+              <div><dt>AI 调用</dt><dd id="calls">—</dd></div>
+              <div><dt>Token</dt><dd id="tokens">—</dd></div>
+              <div><dt>攻击</dt><dd id="attacks">—</dd></div>
+              <div><dt>等级</dt><dd id="level">—</dd></div>
+            </dl>
+          </section>
+          <section class="panel" aria-labelledby="team-title">
+            <h2 id="team-title">房间成员</h2>
+            <ul id="members" class="member-list"></ul>
+          </section>
+        </aside>
+      </div>
+      <section class="panel history-panel" aria-labelledby="history-title">
+        <h2 id="history-title">攻击明细</h2>
+        <p id="history-empty">这间房还没有新的攻击记录。</p>
+        <ol id="attack-history" class="attack-history"></ol>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="create-dialog" aria-labelledby="create-title">
+    <div class="dialog-heading">
+      <h2 id="create-title">创建房间</h2>
+      <button class="icon-button" type="button" data-close aria-label="关闭">×</button>
+    </div>
+    <form id="create-form" autocomplete="off">
+      <label for="new-room">房间名称</label>
+      <input id="new-room" type="text" maxlength="40" required autofocus>
+      <fieldset class="room-types">
+        <legend>房间类型</legend>
+        <div class="room-type-options">
+          <label class="room-type">
+            <input type="radio" name="room-visibility" value="private" checked>
+            <span><strong>私人房</strong><small>通过邀请码加入</small></span>
+          </label>
+          <label class="room-type">
+            <input type="radio" name="room-visibility" value="public">
+            <span><strong>公开房</strong><small>在大厅里可见</small></span>
+          </label>
+        </div>
+      </fieldset>
+      <p class="dialog-message" role="status"></p>
+      <div class="dialog-footer">
+        <button class="secondary" type="button" data-close>取消</button>
+        <button class="primary" id="create" type="button">创建并进入</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="join-dialog" aria-labelledby="join-title">
+    <div class="dialog-heading">
+      <h2 id="join-title">通过邀请码加入</h2>
+      <button class="icon-button" type="button" data-close aria-label="关闭">×</button>
+    </div>
+    <form id="join-form" autocomplete="off">
+      <label for="join-code">8 位数字邀请码</label>
+      <input id="join-code" name="code" type="text" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" required autofocus>
+      <p class="dialog-message" role="status"></p>
+      <div class="dialog-footer">
+        <button class="secondary" type="button" data-close>取消</button>
+        <button class="primary" id="join" type="button">加入房间</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="profile-dialog" aria-labelledby="profile-title">
+    <div class="dialog-heading">
+      <h2 id="profile-title">更改昵称</h2>
+      <button class="icon-button" type="button" data-close aria-label="关闭">×</button>
+    </div>
+    <form id="profile-form" autocomplete="off">
+      <label for="nickname">昵称</label>
+      <input id="nickname" type="text" maxlength="24" required autofocus>
+      <p class="dialog-message" role="status"></p>
+      <div class="dialog-footer">
+        <button class="secondary" type="button" data-close>取消</button>
+        <button class="primary" id="rename" type="button">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="share-dialog" aria-labelledby="share-title">
+    <div class="dialog-heading">
+      <h2 id="share-title">邀请同事</h2>
+      <button class="icon-button" type="button" data-close aria-label="关闭">×</button>
+    </div>
+    <p id="public-invite" hidden>同事可以从大厅直接进入这个房间。</p>
+    <div id="room-invite" hidden>
+      <p class="share-label">邀请码</p>
+      <div class="share-row">
+        <p id="invite-code"></p>
+        <button class="secondary" id="copy-code" type="button">复制邀请码</button>
+      </div>
+      <label for="invite-link" id="invite-link-label">分享链接</label>
+      <div class="share-row" id="invite-link-row">
+        <input id="invite-link" type="url" readonly>
+        <button class="secondary" id="copy" type="button">复制</button>
+      </div>
+    </div>
+    <p class="dialog-message" role="status"></p>
+  </dialog>
+</body>
+</html>

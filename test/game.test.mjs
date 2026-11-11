@@ -1,0 +1,462 @@
+import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runInNewContext } from "node:vm";
+import { createRoomService } from "../room-server.mjs";
+import { bossForLevel, DAMAGE_VARIATIONS, resolveAttack } from "../boss.mjs";
+import { createLocalHandler } from "../plugin.mjs";
+import { findLobby, LAN_ROOM_SERVER, LOCAL_ROOM_SERVER } from "../lobby-network.mjs";
+import { createPlayer } from "../player.mjs";
+import { toUsage } from "../usage.mjs";
+
+const token = (number) => String(number).repeat(64);
+const event = (number, day = "2026-11-11") => ({ id: number.toString(16).padStart(64, "0"), day });
+
+function useRoom(roll = () => 99, path = ":memory:") {
+  const service = createRoomService(path, {
+    roll: (max) => max === 100 ? roll() : max === DAMAGE_VARIATIONS ? 3 : 999,
+  });
+  const send = (path, player, body) => service.fetch(new Request(`http://localhost${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: player ? { Authorization: `Bearer ${token(player)}` } : {},
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }));
+  return { ...service, send };
+}
+
+test("gives each early boss a distinct appearance and an actual combat skill", () => {
+  const bosses = Array.from({ length: 5 }, (_, index) => bossForLevel(index + 1));
+  expect(new Set(bosses.map((boss) => boss.name)).size).toBe(5);
+  expect(new Set(bosses.map((boss) => boss.skin)).size).toBe(5);
+  expect(new Set(bosses.map((boss) => boss.skill.name)).size).toBe(5);
+  expect(resolveAttack(bosses[0], 4, 99, 60, 60)).toMatchObject({
+    damage: 7, hp: 53, skillName: "缓存护盾",
+  });
+  expect(resolveAttack(bosses[1], 5, 10, 80, 80)).toMatchObject({
+    damage: 0, hp: 80, xp: 0, skillName: "相位闪避",
+  });
+  expect(resolveAttack(bosses[2], 4, 99, 100, 100)).toMatchObject({
+    damage: 7, hp: 93, xp: 6, skillName: "棘甲反震",
+  });
+  expect(resolveAttack(bosses[3], 3, 99, 30, 120)).toMatchObject({
+    damage: 10, hp: 28, skillName: "回滚再生", skillDetail: "恢复 8 HP",
+  });
+  expect(resolveAttack(bosses[4], 1, 10, 140, 140)).toMatchObject({
+    damage: 9, hp: 131, skillName: "镜面折射",
+  });
+  expect(resolveAttack(bosses[4], 2, 99, 140, 140)).toMatchObject({ damage: 10, skillName: null });
+});
+
+test("later forms change their look and strengthen skills without nullifying all damage", () => {
+  const initial = bossForLevel(1);
+  const evolved = bossForLevel(6);
+  expect(evolved.name).not.toBe(initial.name);
+  expect(evolved.hue).not.toBe(initial.hue);
+  expect(evolved.evolved).toBe(true);
+  expect(evolved.skill.interval).toBeLessThan(initial.skill.interval);
+  expect(evolved.skill.power).toBeGreaterThan(initial.skill.power);
+  expect(bossForLevel(12).skill.interval).toBe(3);
+  expect(resolveAttack(bossForLevel(100_000), 1, 10, 1_000_000, 1_000_000).damage).toBeGreaterThan(0);
+});
+
+test("rolls damage tiers, preserves skill mitigation, and gates finishers on health and dodges", () => {
+  const cache = bossForLevel(1);
+  expect(resolveAttack(cache, 1, 99, 60, 60, { baseDamage: 7 })).toMatchObject({ damage: 7, baseDamage: 7 });
+  expect(resolveAttack(cache, 1, 10, 60, 60, { baseDamage: 13 })).toMatchObject({ outcome: "critical", damage: 26 });
+  expect(resolveAttack(cache, 1, 35, 60, 60, { baseDamage: 13 })).toMatchObject({
+    outcome: "critical", kind: "overpower", damage: 39, xp: 15,
+  });
+  expect(resolveAttack(cache, 1, 40, 60, 60, { baseDamage: 7 })).toMatchObject({
+    outcome: "hit", kind: "followUp", damage: 11,
+  });
+  expect(resolveAttack(cache, 4, 99, 60, 60, { combo: 4 })).toMatchObject({
+    combo: 0, comboBonus: 5, damage: 11, skillName: "缓存护盾",
+  });
+  expect(resolveAttack(cache, 4, 99, 60, 60, { finisherRoll: 4 })).toMatchObject({
+    outcome: "critical", kind: "instant", damage: 60, hp: 0, xp: 30, skillName: null,
+  });
+  expect(resolveAttack(cache, 1, 99, 16, 60, { finisherRoll: 5 })).toMatchObject({ kind: null, hp: 6 });
+  expect(resolveAttack(cache, 1, 99, 15, 60, { finisherRoll: 104 })).toMatchObject({
+    kind: "execute", damage: 15, hp: 0, xp: 20,
+  });
+  expect(resolveAttack(cache, 1, 99, 15, 60, { finisherRoll: 105 })).toMatchObject({ kind: null, hp: 5 });
+  expect(resolveAttack(cache, 1, 0, 60, 60, { finisherRoll: 0, combo: 4 })).toMatchObject({
+    outcome: "dodge", kind: null, damage: 0, combo: 0,
+  });
+  expect(resolveAttack(bossForLevel(2), 5, 99, 80, 80, { finisherRoll: 0, combo: 4 })).toMatchObject({
+    outcome: "dodge", kind: null, hp: 80, combo: 0, skillName: "相位闪避",
+  });
+});
+
+test("defaults to public lobby, protects private rooms, and keeps a renamed profile", async () => {
+  const { close, send } = useRoom();
+  try {
+    const publicA = await (await send("/api/player", 1, { nickname: "<A>" })).json();
+    const publicB = await (await send("/api/player", 2, { nickname: "B" })).json();
+    expect(publicA.room.id).toBe("lobby");
+    expect(publicB.room.id).toBe(publicA.room.id);
+    expect(publicB.room.members).toHaveLength(2);
+    const a = await (await send("/api/rooms", 1, { name: "项目组", visibility: "private" })).json();
+    const b = await (await send("/api/home", 2, {})).json();
+    expect(a.room.code).toMatch(/^\d{8}$/);
+    expect(a.room.id).not.toBe(b.room.id);
+    expect(a.room.members).toEqual([a.player]);
+    const landing = await (await send(`/invite/${a.room.code}`)).text();
+    expect(landing).toContain(`/?invite=${a.room.code}`);
+    expect(landing).toContain("&lt;A&gt;");
+    expect((await (await send("/api/state", 2)).json()).rooms.some((room) => room.id === a.room.id)).toBe(false);
+    expect((await send("/api/rooms/join", 2, { roomId: a.room.id })).status).toBe(404);
+    expect((await send("/api/join", 2, { code: "nope" })).status).toBe(404);
+    const joined = await (await send("/api/join", 2, { code: a.room.code })).json();
+    expect(joined.room.id).toBe(a.room.id);
+    expect(joined.room.members.map((member) => member.name)).toEqual(["<A>", "B"]);
+    const renamed = await (await send("/api/profile", 2, { nickname: "新昵称" })).json();
+    expect(renamed.player.id).toBe(b.player.id);
+    expect(renamed.player.name).toBe("新昵称");
+    expect((await (await send("/api/state", 1)).json()).room.members).toContainEqual(renamed.player);
+    expect((await send("/api/profile", 2, { nickname: " " })).status).toBe(400);
+    const home = await (await send("/api/home", 2, {})).json();
+    expect(home.room.id).toBe(b.room.id);
+    const again = await (await send("/api/player", 2, {})).json();
+    expect(again.room.code).toBe(b.room.code);
+    const open = await (await send("/api/rooms", 1, { name: "公开组", visibility: "public" })).json();
+    expect((await (await send("/api/state", 2)).json()).rooms.map((room) => room.id)).toContain(open.room.id);
+    expect((await (await send("/api/rooms/join", 2, { roomId: open.room.id })).json()).room.id).toBe(open.room.id);
+    expect((await send("/api/rooms", 2, { name: "", visibility: "public" })).status).toBe(400);
+  } finally {
+    close();
+  }
+});
+
+test("players can attack without a daily cap and share stronger successive bosses", async () => {
+  const { close, send } = useRoom();
+  try {
+    const a = await (await send("/api/player", 1, {})).json();
+    await send("/api/player", 2, {});
+    await send("/api/join", 2, { code: a.room.code });
+    const events = [event(1), event(1), event(2), event(3), event(4)];
+    const first = await (await send("/api/attacks", 1, { events })).json();
+    expect(first.room).toMatchObject({ hp: 23, bossLevel: 1, maxHp: 60, nextSkillIn: 4 });
+    expect(first.room.attacks[0]).toMatchObject({ skillName: "缓存护盾", damage: 7 });
+    expect(first.player.xp).toBe(40);
+    const second = await (await send("/api/attacks", 2, { events })).json();
+    expect(second.room).toMatchObject({ hp: 60, defeated: 1, bossLevel: 2, maxHp: 80, nextSkillIn: 3 });
+    expect(second.room.attacks).toHaveLength(8);
+    const replay = await (await send("/api/attacks", 2, { events })).json();
+    expect(replay.room).toEqual(second.room);
+    const next = await (await send("/api/attacks", 2, { events: Array.from({ length: 7 }, (_, index) => event(index + 5)) })).json();
+    expect(next.room).toMatchObject({ hp: 100, defeated: 2, bossLevel: 3, maxHp: 100 });
+    expect(next.room.attacks[0]).toMatchObject({ bossLevel: 2, hp: 0 });
+    expect(next.room.attacks.find((attack) => attack.skillName === "相位闪避")).toMatchObject({ outcome: "dodge", damage: 0 });
+    expect(next.player.level).toBe(3);
+    expect((await (await send("/api/state", 1)).json()).room).toEqual(next.room);
+    expect((await (await send("/api/home", 2, {})).json()).player.level).toBe(3);
+  } finally {
+    close();
+  }
+});
+
+test("room service validates auth and attack payloads", async () => {
+  const { close, send } = useRoom();
+  try {
+    expect((await send("/api/state")).status).toBe(401);
+    expect((await send("/api/state", 1)).status).toBe(404);
+    await send("/api/player", 1, {});
+    expect((await send("/api/attacks", 1, { events: [{ id: "x" }] })).status).toBe(400);
+    expect((await send("/api/attacks", 1, { events: Array(101).fill(event(1)) })).status).toBe(400);
+  } finally {
+    close();
+  }
+});
+
+test("stores each combat outcome once, with actual damage and shared history", async () => {
+  const rolls = [0, 10, 25, 99, 99, 10];
+  const { close, send } = useRoom(() => rolls.shift());
+  try {
+    const a = await (await send("/api/player", 1, { nickname: "Alice" })).json();
+    await send("/api/player", 2, { nickname: "Bob" });
+    await send("/api/join", 2, { code: a.room.code });
+    const events = [event(1), event(1), event(2), event(3)];
+    const first = await (await send("/api/attacks", 1, { events })).json();
+    expect(first.room.attacks.map(({ outcome, damage, xp, hp }) => [outcome, damage, xp, hp])).toEqual([
+      ["counter", 10, 5, 30], ["critical", 20, 10, 40], ["dodge", 0, 0, 60],
+    ]);
+    expect(first.player.xp).toBe(15);
+    const second = await (await send("/api/attacks", 2, { events })).json();
+    expect(second.room.attacks[0]).toMatchObject({
+      outcome: "critical", playerName: "Bob", damage: 13, hp: 0,
+    });
+    expect(second.room.attacks).toHaveLength(6);
+    expect(second.room).toMatchObject({ defeated: 1, bossLevel: 2, hp: 80 });
+    expect((await (await send("/api/state", 1)).json()).room.attacks).toEqual(second.room.attacks);
+    const replay = await (await send("/api/attacks", 2, { events })).json();
+    expect(replay.room.attacks).toEqual(second.room.attacks);
+    expect(rolls).toEqual([]);
+  } finally {
+    close();
+  }
+});
+
+test("upgrades the previous room database without losing progress or repeating older attacks", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-room-upgrade-"));
+  const path = join(directory, "room.sqlite");
+  const old = useRoom(() => 99, path);
+  try {
+    const before = await (await old.send("/api/player", 1, { nickname: "Alice" })).json();
+    await old.send("/api/attacks", 1, { events: [event(1)] });
+    old.close();
+    const db = new Database(path);
+    db.exec(`
+      ALTER TABLE rooms DROP COLUMN boss_turn;
+      ALTER TABLE rooms DROP COLUMN combo;
+      ALTER TABLE attack_results DROP COLUMN skill_detail;
+      ALTER TABLE attack_results DROP COLUMN skill_name;
+      ALTER TABLE attack_results DROP COLUMN boss_level;
+      ALTER TABLE attack_results DROP COLUMN attack_kind;
+      ALTER TABLE attack_results DROP COLUMN base_damage;
+      ALTER TABLE attack_results DROP COLUMN combo_bonus;
+    `);
+    db.close();
+    const upgraded = useRoom(() => 10, path);
+    try {
+      const state = await (await upgraded.send("/api/state", 1)).json();
+      expect(state.room).toMatchObject({ code: before.room.code, hp: 50, bossLevel: 1, nextSkillIn: 4 });
+      expect(state.room.attacks).toHaveLength(1);
+      expect(state.room.attacks[0]).toMatchObject({ damage: 10, bossLevel: null, kind: null, baseDamage: null });
+      expect(state.player.xp).toBe(10);
+      const next = await (await upgraded.send("/api/attacks", 1, { events: [event(1), event(2)] })).json();
+      expect(next.room.hp).toBe(30);
+      expect(next.room.attacks).toHaveLength(2);
+      expect(next.room.attacks[0]).toMatchObject({ outcome: "critical", damage: 20, bossLevel: 1 });
+    } finally {
+      upgraded.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("resumes shared skill and combo progress across room service instances", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-shared-skill-"));
+  const path = join(directory, "room.sqlite");
+  const a = useRoom(() => 99, path);
+  const b = useRoom(() => 99, path);
+  try {
+    const { room } = await (await a.send("/api/player", 1, {})).json();
+    await b.send("/api/player", 2, {});
+    await b.send("/api/join", 2, { code: room.code });
+    await a.send("/api/attacks", 1, { events: [event(1), event(2), event(3)] });
+    const first = await (await b.send("/api/state", 2)).json();
+    expect(first.room).toMatchObject({ nextSkillIn: 1, combo: 3, comboTarget: 5 });
+    await a.send("/api/attacks", 1, { events: [event(3)] });
+    const next = await (await b.send("/api/attacks", 2, { events: [event(4)] })).json();
+    expect(next.room.nextSkillIn).toBe(4);
+    expect(next.room.attacks[0]).toMatchObject({ skillName: "缓存护盾", damage: 7 });
+    expect(next.room.attacks).toHaveLength(4);
+    expect(next.room.combo).toBe(4);
+    const combo = await (await a.send("/api/attacks", 1, { events: [event(5)] })).json();
+    expect(combo.room).toMatchObject({ hp: 8, combo: 0 });
+    expect(combo.room.attacks[0]).toMatchObject({ damage: 15, baseDamage: 10, comboBonus: 5 });
+  } finally {
+    a.close();
+    b.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("uses final requests only, counts billed cache, and distinguishes failures", () => {
+  const t = "2026-11-11T05:00:00.000Z";
+  const row = { t, rid: "one", in: 2, out: 3, cache_read: 5, cache_write: 7, reasoning: 19, status: 200 };
+  const usage = toUsage(row, 0);
+  expect(usage).toMatchObject({ tokens: 17, success: true });
+  expect(usage.id).toMatch(/^[a-f0-9]{64}$/);
+  expect(toUsage({ ...row, status: 429 }, 0)).toMatchObject({ tokens: 17, success: false });
+  expect(toUsage({ ...row, handed_on: true }, 0)).toBeNull();
+  expect(toUsage({ ...row, purpose: "title" }, 0)).toBeNull();
+  expect(toUsage(row, Date.parse(t) + 1)).toBeNull();
+  expect(toUsage({ ...row, rid: "" }, 0)).toBeNull();
+  expect(toUsage({ ...row, rid: undefined, route_id: 1794371930841 }, 0)).toMatchObject({ tokens: 17, success: true });
+});
+
+test("reads local Codex completion records while requiring real usage and a response ID", () => {
+  const log = {
+    t: "2026-11-11T05:00:00.000Z", source: "log", agent: "codex", session: "test-session",
+    response_id: "resp_test", status: 0, in: 12, out: 7, cache_read: 4,
+  };
+  const row = toUsage(log, 0);
+  expect(row).toMatchObject({ tokens: 23, success: true, id: row.responseKey });
+  expect(toUsage({ ...log, response_id: "" }, 0)).toBeNull();
+  expect(toUsage({ ...log, source: undefined }, 0)).toBeNull();
+  expect(toUsage({ ...log, in: 0, out: 0, cache_read: 0 }, 0)).toBeNull();
+  expect(toUsage({ ...log, source: undefined, route_id: 99, status: 200 }, 0).responseKey).toBe(row.responseKey);
+});
+
+test("local helper refuses foreign hosts and cross-origin joins", async () => {
+  const origin = "http://127.0.0.1:3468";
+  const handler = createLocalHandler({ snapshot: () => ({ calls: 0 }) }, origin);
+  expect((await handler(new Request(`${origin}/api/state`, { headers: { host: "office.test:3468" } }))).status).toBe(403);
+  const response = await handler(new Request(`${origin}/api/join`, {
+    method: "POST", headers: { host: "127.0.0.1:3468", origin: "http://office.test" },
+    body: JSON.stringify({ code: "12345678" }),
+  }));
+  expect(response.status).toBe(403);
+  const accepted = await handler(new Request(`${origin}/api/state`, { headers: { host: "127.0.0.1:3468" } }));
+  expect(await accepted.json()).toEqual({ calls: 0 });
+});
+
+test("collects requests while offline, syncs every eligible attack, and retains progress on restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-player-test-"));
+  const { close, fetch: handleRoom, send } = useRoom();
+  let online = false;
+  let readable = true;
+  let rows = [];
+  const attackPayloads = [];
+  const options = {
+    directory,
+    magpieUrl: "http://magpie.test",
+    roomServer: "http://rooms.test",
+    nickname: "Local player",
+    fetcher: async (url, init) => {
+      if (url.hostname === "magpie.test") {
+        if (!readable) return new Response(null, { status: 503 });
+        const offset = Number(url.searchParams.get("offset"));
+        return Response.json({ rows: rows.slice(offset, offset + 2), total: rows.length });
+      }
+      if (!online) throw new Error("network unavailable");
+      if (url.pathname === "/api/attacks") attackPayloads.push(JSON.parse(init.body));
+      return handleRoom(new Request(url, init));
+    },
+  };
+  let player = createPlayer(options);
+  try {
+    const t = new Date().toISOString();
+    const codex = { t, agent: "codex", session: "test-session", status: 0, source: "log", in: 17, out: 3 };
+    rows = [
+      { ...codex, response_id: "resp_direct" },
+      { ...codex, response_id: "resp_gateway" },
+      { ...codex, response_id: "resp_gateway", source: undefined, route_id: 99, status: 200 },
+      { t, rid: "two", status: 200, in: 17, out: 3 },
+      { t, rid: "three", status: 200, in: 17, out: 3 },
+      { t, rid: "failed", status: 429, in: 1 },
+    ];
+    await player.tick();
+    expect(player.snapshot()).toMatchObject({
+      pending: 4, roomOnline: false, usageOnline: true, usage: { calls: 5, tokens: 81, attacks: 4 },
+    });
+    online = true;
+    await player.tick();
+    const first = player.snapshot();
+    expect(first).toMatchObject({ pending: 0, room: { hp: 23 }, player: { xp: 40 } });
+    expect(attackPayloads).toHaveLength(1);
+    expect(attackPayloads[0].events).toHaveLength(4);
+    expect(Object.keys(attackPayloads[0].events[0]).sort()).toEqual(["day", "id"]);
+
+    await send("/api/player", 5, { nickname: "Host" });
+    const host = await (await send("/api/home", 5, {})).json();
+    expect(await player.preview(host.room.code)).toMatchObject({ owner: "Host" });
+    await player.changeRoom(host.room.code);
+    expect(player.snapshot().room.hp).toBe(60);
+    expect(player.snapshot().player.xp).toBe(40);
+
+    player.close();
+    player = createPlayer(options);
+    readable = false;
+    await player.tick();
+    expect(player.snapshot()).toMatchObject({
+      player: first.player, room: { id: host.room.id, hp: 60 }, usageOnline: false, usage: first.usage,
+    });
+    readable = true;
+    await player.chooseRoom(first.room.id);
+    expect(player.snapshot().room).toMatchObject({ id: first.room.id, hp: 23 });
+    await player.createRoom("我的新房间", "private");
+    expect(player.snapshot().room.name).toBe("我的新房间");
+    await player.rename("可以改名");
+    expect(player.snapshot().player.name).toBe("可以改名");
+    await player.changeRoom();
+    expect(player.snapshot().room.id).toBe(player.snapshot().player.id);
+  } finally {
+    player.close();
+    close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("uses K for thousands of API calls and M for millions of tokens", () => {
+  const script = readFileSync(new URL("../page/format.js", import.meta.url), "utf8");
+  const compact = runInNewContext(`${script}\nformatCompactCount;`);
+  expect(compact(999, 1000, "K")).toBe("999");
+  expect(compact(1234, 1000, "K")).toBe("1.23K");
+  expect(compact(999_999, 1_000_000, "M")).toBe("999,999");
+  expect(compact(8_466_623, 1_000_000, "M")).toBe("8.47M");
+});
+
+test("local room serves browser assets and validates invitation actions", async () => {
+  const origin = "http://127.0.0.1:3468";
+  const player = {
+    preview: async (code) => {
+      if (code === "11111111") throw new Error("找不到这个邀请码");
+      return { code };
+    },
+    changeRoom: async (code) => {
+      if (code === "22222222") throw new Error("offline");
+      return { code: code ?? "home" };
+    },
+  };
+  const handler = createLocalHandler(player, origin);
+  const request = (path, body) => handler(new Request(`${origin}${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { host: "127.0.0.1:3468", origin },
+    body,
+  }));
+  const home = await request("/");
+  expect(home.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+  expect(await home.text()).toContain("Magpie Boss");
+  expect((await request("/api/join", "invalid json")).status).toBe(400);
+  expect((await request("/api/join", '{"code":12345678}')).status).toBe(400);
+  expect(await (await request("/api/invite", '{"code":"12345678"}')).json()).toEqual({ code: "12345678" });
+  expect((await request("/api/invite", '{"code":"11111111"}')).status).toBe(404);
+  expect((await request("/api/join", '{"code":"22222222"}')).status).toBe(503);
+  expect(await (await request("/api/join", '{"code":"12345678"}')).json()).toEqual({ code: "12345678" });
+  expect(await (await request("/api/home", "{}")).json()).toEqual({ code: "home" });
+  expect((await request("/unknown", "{}")).status).toBe(404);
+  expect((await request("/unknown")).status).toBe(404);
+});
+
+test("Magpie iframe requests need the per-page token before CORS permits local actions", async () => {
+  const origin = "http://127.0.0.1:3468";
+  const player = { snapshot: () => ({ online: true }), rename: async (nickname) => ({ nickname }) };
+  const handler = createLocalHandler(player, origin);
+  const request = (path, init = {}) => handler(new Request(origin + path, {
+    ...init, headers: { host: "127.0.0.1:3468", ...init.headers },
+  }));
+  const boot = await request("/embedded");
+  expect(boot.headers.get("content-security-policy")).toContain("frame-ancestors wails:");
+  const token = (await boot.text()).match(/data-embed-token="([a-f0-9]{64})"/)?.[1];
+  expect(token).toBeTruthy();
+  expect((await request("/api/state", { headers: { origin: "null" } })).status).toBe(403);
+  const preflight = await request("/api/profile", { method: "OPTIONS", headers: { origin: "null" } });
+  expect(preflight.status).toBe(204);
+  expect(preflight.headers.get("access-control-allow-origin")).toBe("null");
+  const renamed = await request("/api/profile", {
+    method: "POST", headers: { origin: "null", "x-boss-embed": token }, body: '{"nickname":"测试"}',
+  });
+  expect(await renamed.json()).toEqual({ nickname: "测试" });
+  expect(renamed.headers.get("access-control-allow-origin")).toBe("null");
+  expect((await request("/api/profile", {
+    method: "POST", headers: { origin: "http://foreign.test", "x-boss-embed": token }, body: '{"nickname":"测试"}',
+  })).status).toBe(403);
+});
+
+test("lobby discovery finds an existing local server or remembers the shared server", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-discovery-"));
+  try {
+    expect(await findLobby(directory, async () => false)).toBeNull();
+    expect(await findLobby(directory, async () => true)).toBe(LOCAL_ROOM_SERVER);
+    expect(await findLobby(directory, async (origin) => origin === LAN_ROOM_SERVER)).toBe(LAN_ROOM_SERVER);
+    expect(await findLobby(directory, async () => false)).toBe(LAN_ROOM_SERVER);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

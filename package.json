@@ -1,0 +1,24 @@
+{
+  "name": "magpie-boss",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "./plugin.mjs",
+  "scripts": {
+    "room": "bun room-server.mjs",
+    "test": "bun test"
+  },
+  "magpie": {
+    "name": "Magpie Boss",
+    "page": {
+      "title": "Boss Room",
+      "titles": { "zh": "Boss 房间", "zh-TW": "Boss 房間" },
+      "file": "page/index.html"
+    },
+    "options": {
+      "roomServer": "",
+      "localPort": 3468,
+      "nickname": ""
+    }
+  }
+}

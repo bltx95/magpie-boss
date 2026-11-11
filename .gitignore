@@ -1,0 +1,4 @@
+.ace-tool/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
