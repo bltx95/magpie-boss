@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-embed-token="">
+<html lang="zh-CN" data-embed-token="" data-hosted="">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -33,6 +33,7 @@
           <p id="lobby-scope" class="scope" hidden>本机大厅</p>
         </div>
         <div class="toolbar">
+          <button class="secondary" id="open-pair" type="button" hidden>绑定 Magpie</button>
           <button class="secondary" id="open-join" type="button" disabled>输入邀请码</button>
           <button class="primary" id="open-create" type="button" disabled><span aria-hidden="true">+</span> 创建房间</button>
         </div>
@@ -93,8 +94,8 @@
           <section class="panel" aria-labelledby="personal">
             <h2 id="personal">我的今日战绩</h2>
             <dl class="stats">
-              <div><dt>AI 调用</dt><dd id="calls">—</dd></div>
-              <div><dt>Token</dt><dd id="tokens">—</dd></div>
+              <div id="local-calls"><dt>AI 调用</dt><dd id="calls">—</dd></div>
+              <div id="local-tokens"><dt>Token</dt><dd id="tokens">—</dd></div>
               <div><dt>攻击</dt><dd id="attacks">—</dd></div>
               <div><dt>等级</dt><dd id="level">—</dd></div>
             </dl>
@@ -172,6 +173,20 @@
         <button class="primary" id="rename" type="button">保存</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="pair-dialog" aria-labelledby="pair-title">
+    <div class="dialog-heading">
+      <h2 id="pair-title">绑定 Magpie</h2>
+      <button class="icon-button" type="button" data-close aria-label="关闭">×</button>
+    </div>
+    <p>把配对码填到 Magpie Boss 的插件选项 <code>pairingCode</code>，保存后网页会显示你的 Magpie 角色。配对码 10 分钟内有效，只能使用一次。</p>
+    <label for="pair-code">配对码</label>
+    <div class="share-row">
+      <input id="pair-code" type="text" readonly>
+      <button class="secondary" id="copy-pair" type="button" disabled>复制</button>
+    </div>
+    <p class="dialog-message" role="status"></p>
   </dialog>
 
   <dialog id="share-dialog" aria-labelledby="share-title">

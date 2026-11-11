@@ -4,7 +4,9 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { localDay, readUsagePage, toUsage } from "./usage.mjs";
 
-export function createPlayer({ directory, roomServer, nickname, magpieUrl, fetcher = fetch, localLobby = false }) {
+export function createPlayer({
+  directory, roomServer, nickname, magpieUrl, fetcher = fetch, localLobby = false, viewerToken, pairingCode,
+}) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const db = new Database(join(directory, "player.sqlite"), { create: true, strict: true });
   db.exec(`
@@ -40,6 +42,13 @@ export function createPlayer({ directory, roomServer, nickname, magpieUrl, fetch
   let usageOnline = false;
   let roomOnline = false;
   let inProgress = Promise.resolve();
+  const links = new Map();
+  if (typeof viewerToken === "string" && /^web_[a-f0-9]{64}$/.test(viewerToken)) {
+    links.set("/api/browser/link", { token: viewerToken });
+  }
+  if (typeof pairingCode === "string" && /^[a-f0-9]{24}$/.test(pairingCode.trim())) {
+    links.set("/api/browser/pair", { code: pairingCode.trim() });
+  }
 
   async function roomRequest(path, body) {
     const options = {
@@ -95,6 +104,17 @@ export function createPlayer({ directory, roomServer, nickname, magpieUrl, fetch
       roomState = await requireRoom("/api/player", { nickname });
     } else {
       throw new Error("房间服务暂不可用");
+    }
+    for (const [path, body] of links) {
+      try {
+        const { response } = await roomRequest(path, body);
+        if (response.ok || [400, 404, 409].includes(response.status)) links.delete(path);
+        if (!response.ok && path === "/api/browser/pair" && response.status === 404) {
+          console.warn("Magpie Boss 配对码无效或已使用。");
+        }
+      } catch {
+        // A temporary pairing error must not prevent queued attacks from syncing.
+      }
     }
     while (true) {
       const events = db.query("SELECT id, day FROM usage WHERE attack = 1 ORDER BY day, rowid LIMIT 100").all();

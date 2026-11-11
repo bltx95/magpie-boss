@@ -1,10 +1,14 @@
 import { Database } from "bun:sqlite";
-import { createHash, randomInt, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { advertiseLobby } from "./lobby-network.mjs";
 import { bossForLevel, COMBO_TARGET, DAMAGE_VARIATIONS, MIN_DAMAGE, resolveAttack } from "./boss.mjs";
+import { webAsset } from "./web-assets.mjs";
 
 const CODE = /^\d{8}$/;
 const PLAYER_TOKEN = /^[a-f0-9]{64}$/;
+const VIEWER_TOKEN = /^web_[a-f0-9]{64}$/;
+const PAIRING_CODE = /^[a-f0-9]{24}$/;
+const PAIRING_LIFETIME = 10 * 60 * 1000;
 const EVENT_ID = /^[a-f0-9]{64}$/;
 const FIRST_BOSS_HP = 60;
 const HP_PER_LEVEL = 20;
@@ -14,7 +18,7 @@ const PUBLIC_ROOM = "lobby";
 
 const bossMaxHp = (defeated) => FIRST_BOSS_HP + defeated * HP_PER_LEVEL;
 
-function invitePage(room, code) {
+function invitePage(room, code, hosted) {
   const escape = (value) => value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[character]);
@@ -29,8 +33,8 @@ function invitePage(room, code) {
     <main><h1>${escape(room.name)}</h1>
     <p>房主 ${escape(room.owner)} 邀请你一起打 Boss。</p>
     <p>邀请码 <strong>${code}</strong></p>
-    <p><a href="http://127.0.0.1:3468/?invite=${code}">在这台电脑上加入</a></p>
-    <p>请先在本机启用 Magpie Boss。你也可以在自己的 Boss 房间输入邀请码。</p>
+    <p><a href="${hosted ? "" : "http://127.0.0.1:3468"}/?invite=${code}">打开大厅并加入</a></p>
+    <p>你也可以在自己的 Boss 房间输入邀请码。</p>
     </main></html>`, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -45,7 +49,19 @@ const json = (body, status = 200) => Response.json(body, {
   headers: { "Cache-Control": "no-store" },
 });
 
-export function createRoomService(path, { roll = (max) => randomInt(max) } = {}) {
+const hash = (value) => createHash("sha256").update(value).digest("hex");
+const browserPaths = new Set([
+  "/api/state", "/api/player", "/api/rooms", "/api/rooms/join", "/api/profile",
+  "/api/join", "/api/invite", "/api/home", "/api/browser/code",
+]);
+const browserCors = {
+  "Access-Control-Allow-Origin": "null",
+  "Access-Control-Allow-Methods": "GET, POST",
+  "Access-Control-Allow-Headers": "authorization, content-type",
+  Vary: "Origin",
+};
+
+export function createRoomService(path, { roll = (max) => randomInt(max), hosted = false, publicOrigin } = {}) {
   const db = new Database(path, { create: true, strict: true });
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -73,6 +89,13 @@ export function createRoomService(path, { roll = (max) => randomInt(max) } = {})
       attack_kind TEXT, base_damage INTEGER, combo_bonus INTEGER
     );
     CREATE INDEX IF NOT EXISTS attack_results_by_room ON attack_results(room_id, id DESC);
+    CREATE INDEX IF NOT EXISTS attacks_by_player_and_day ON attacks(player_id, day);
+    CREATE TABLE IF NOT EXISTS browser_links (
+      browser_id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id)
+    );
+    CREATE TABLE IF NOT EXISTS browser_codes (
+      digest TEXT PRIMARY KEY, browser_id TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL
+    );
   `);
   db.transaction(() => {
     const column = db.query("SELECT 1 FROM pragma_table_info(?) WHERE name = ?");
@@ -148,6 +171,35 @@ export function createRoomService(path, { roll = (max) => randomInt(max) } = {})
   }
 
   const move = db.query("UPDATE players SET room_id = ? WHERE id = ?");
+  const browserLink = db.query("SELECT player_id FROM browser_links WHERE browser_id = ?");
+  const linkBrowser = (browserId, id) => {
+    const linked = browserLink.get(browserId);
+    if (linked) return linked.player_id === id;
+    const guest = player.get(browserId);
+    if (guest) {
+      if (guest.room_id !== PUBLIC_ROOM) move.run(guest.room_id, id);
+      db.query("UPDATE rooms SET owner_id = ? WHERE owner_id = ?").run(id, browserId);
+      db.query("DELETE FROM players WHERE id = ?").run(browserId);
+    }
+    db.query("INSERT INTO browser_links VALUES (?, ?)").run(browserId, id);
+    db.query("DELETE FROM browser_codes WHERE browser_id = ?").run(browserId);
+    return true;
+  };
+  const link = db.transaction(linkBrowser);
+  const pair = db.transaction((code, id) => {
+    const pending = db.query("SELECT browser_id FROM browser_codes WHERE digest = ? AND expires_at > ?")
+      .get(hash(code), Date.now());
+    return pending && linkBrowser(pending.browser_id, id);
+  });
+  const issueCode = db.transaction((browserId) => {
+    const now = Date.now();
+    const code = randomBytes(12).toString("hex");
+    db.query("DELETE FROM browser_codes WHERE expires_at <= ?").run(now);
+    db.query(`INSERT INTO browser_codes VALUES (?, ?, ?) ON CONFLICT(browser_id)
+      DO UPDATE SET digest = excluded.digest, expires_at = excluded.expires_at`).run(hash(code), browserId, now + PAIRING_LIFETIME);
+    return code;
+  });
+  const attackCount = db.query("SELECT COUNT(*) AS total FROM attacks WHERE player_id = ? AND day = ?");
   const register = db.transaction((id, nickname) => {
     if (!player.get(id)) {
       const name = nickname || `玩家 ${id.slice(0, 4).toUpperCase()}`;
@@ -217,20 +269,46 @@ export function createRoomService(path, { roll = (max) => randomInt(max) } = {})
   });
 
   async function fetch(request) {
-    const { pathname } = new URL(request.url);
+    const url = new URL(request.url);
+    const { pathname } = url;
+    if (hosted && request.method === "GET") {
+      const origin = publicOrigin ?? url.origin;
+      const policy = `default-src ${origin}; base-uri 'none'; form-action 'none'; frame-ancestors wails: 'self'`;
+      const asset = webAsset(pathname, policy, { hosted: "true" });
+      if (asset) return asset;
+    }
+    if (hosted && request.headers.get("origin") === "null" && browserPaths.has(pathname)) {
+      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: browserCors });
+      const response = await api(request, url);
+      for (const [key, value] of Object.entries(browserCors)) response.headers.set(key, value);
+      return response;
+    }
+    return api(request, url);
+  }
+
+  async function api(request, { pathname, searchParams }) {
     if (request.method === "GET" && pathname === "/health") return json({ service: "magpie-boss" });
     const code = pathname.match(/^\/invite\/(\d{8})$/)?.[1];
     if (request.method === "GET" && code) {
       const room = invite.get(code);
-      return room ? invitePage(room, code) : json({ error: "找不到这个房间" }, 404);
+      return room ? invitePage(room, code, hosted) : json({ error: "找不到这个房间" }, 404);
     }
 
     const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
-    if (!token || !PLAYER_TOKEN.test(token)) return json({ error: "玩家身份无效" }, 401);
-    const id = createHash("sha256").update(token).digest("hex").slice(0, 24);
+    const browser = VIEWER_TOKEN.test(token ?? "");
+    if (!browser && !PLAYER_TOKEN.test(token ?? "")) return json({ error: "玩家身份无效" }, 401);
+    if (!browser && request.headers.get("origin") === "null") return json({ error: "页面身份无效" }, 403);
+    if (browser && !browserPaths.has(pathname)) return json({ error: "此操作需要 Magpie 插件" }, 403);
+    const tokenId = hash(token).slice(0, 24);
+    const linked = browser ? browserLink.get(tokenId) : null;
+    const id = linked?.player_id ?? tokenId;
     const playerExists = player.get(id);
     if (request.method === "GET" && pathname === "/api/state") {
-      return playerExists ? json(state(id)) : json({ error: "玩家尚未注册" }, 404);
+      if (!playerExists) return json({ error: "玩家尚未注册" }, 404);
+      const current = state(id);
+      if (!browser) return json(current);
+      const day = searchParams.get("day") ?? "";
+      return json({ ...current, bound: Boolean(linked), todayAttacks: DATE.test(day) ? attackCount.get(id, day).total : 0 });
     }
     if (request.method !== "POST") return json({ error: "未知接口" }, 404);
 
@@ -247,6 +325,19 @@ export function createRoomService(path, { roll = (max) => randomInt(max) } = {})
       return json(register.immediate(id, nickname));
     }
     if (!playerExists) return json({ error: "玩家尚未注册" }, 404);
+    if (pathname === "/api/browser/code" && browser) {
+      if (linked) return json({ error: "此浏览器已绑定角色" }, 409);
+      return json({ code: issueCode.immediate(tokenId) });
+    }
+    if (pathname === "/api/browser/link" && !browser) {
+      if (typeof body.token !== "string" || !VIEWER_TOKEN.test(body.token)) return json({ error: "网页身份无效" }, 400);
+      return link.immediate(hash(body.token).slice(0, 24), id)
+        ? json({ bound: true }) : json({ error: "网页已绑定其他角色" }, 409);
+    }
+    if (pathname === "/api/browser/pair" && !browser) {
+      if (typeof body.code !== "string" || !PAIRING_CODE.test(body.code)) return json({ error: "配对码无效" }, 400);
+      return pair.immediate(body.code, id) ? json({ bound: true }) : json({ error: "配对码已失效" }, 404);
+    }
     if (pathname === "/api/rooms") {
       const name = typeof body.name === "string" ? body.name.trim() : "";
       if (!name || name.length > 40 || !["private", "public"].includes(body.visibility)) {
@@ -294,7 +385,11 @@ export function createRoomService(path, { roll = (max) => randomInt(max) } = {})
 }
 
 if (import.meta.main) {
-  const service = createRoomService(process.env.BOSS_DB || "boss-room.sqlite");
+  const publicUrl = process.env.BOSS_PUBLIC_URL ||
+    (process.env.RAILWAY_PUBLIC_DOMAIN && `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`);
+  const service = createRoomService(process.env.BOSS_DB || "boss-room.sqlite", {
+    hosted: Boolean(publicUrl), publicOrigin: publicUrl ? new URL(publicUrl).origin : undefined,
+  });
   const hostname = process.env.BOSS_HOST || "127.0.0.1";
   const server = Bun.serve({
     hostname,

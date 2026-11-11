@@ -6,12 +6,13 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { createRoomService } from "../room-server.mjs";
 import { bossForLevel, DAMAGE_VARIATIONS, resolveAttack } from "../boss.mjs";
-import { createLocalHandler } from "../plugin.mjs";
+import { _internal } from "../plugin.mjs";
 import { findLobby, LAN_ROOM_SERVER, LOCAL_ROOM_SERVER } from "../lobby-network.mjs";
 import { createPlayer } from "../player.mjs";
 import { toUsage } from "../usage.mjs";
 
 const token = (number) => String(number).repeat(64);
+const { createLocalHandler } = _internal;
 const event = (number, day = "2026-11-11") => ({ id: number.toString(16).padStart(64, "0"), day });
 
 function useRoom(roll = () => 99, path = ":memory:") {
@@ -166,6 +167,67 @@ test("room service validates auth and attack payloads", async () => {
     await send("/api/player", 1, {});
     expect((await send("/api/attacks", 1, { events: [{ id: "x" }] })).status).toBe(400);
     expect((await send("/api/attacks", 1, { events: Array(101).fill(event(1)) })).status).toBe(400);
+  } finally {
+    close();
+  }
+});
+
+test("the hosted lobby works independently and binds its browser to an existing Magpie player", async () => {
+  const origin = "https://boss.example.test";
+  const { fetch, close } = createRoomService(":memory:", { hosted: true, publicOrigin: origin });
+  const viewer = "web_" + "a".repeat(64);
+  const secondViewer = "web_" + "b".repeat(64);
+  const stranger = token(2);
+  const collector = token(1);
+  function request(path, auth, body, requestOrigin) {
+    const headers = new Headers();
+    if (auth) headers.set("Authorization", `Bearer ${auth}`);
+    if (requestOrigin) headers.set("Origin", requestOrigin);
+    return fetch(new Request(new URL(path, origin), {
+      method: body === undefined ? "GET" : "POST",
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }));
+  }
+  try {
+    const page = await request("/");
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-security-policy")).toContain(`default-src ${origin}`);
+    expect(await page.text()).toContain('data-hosted="true"');
+    expect((await request("/app.js")).status).toBe(200);
+    expect((await request("/format.js")).status).toBe(200);
+    const preflight = await fetch(new Request(`${origin}/api/state`, { method: "OPTIONS", headers: { Origin: "null" } }));
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect((await request("/api/state", viewer, undefined, "null")).status).toBe(404);
+    const guest = await (await request("/api/player", viewer, {}, "null")).json();
+    const device = await (await request("/api/player", collector, { nickname: "已有角色" })).json();
+    await request("/api/attacks", collector, { events: [event(1)] });
+    const { room } = await (await request("/api/rooms", viewer, { name: "云端测试", visibility: "private" })).json();
+    const invite = await (await request(`/invite/${room.code}`)).text();
+    expect(invite).toContain(`href="/?invite=${room.code}"`);
+    expect(invite).not.toContain("127.0.0.1");
+    expect((await request("/api/attacks", viewer, { events: [event(2)] })).status).toBe(403);
+    expect((await request("/api/state", collector, undefined, "null")).status).toBe(403);
+    expect((await request("/api/browser/link", collector, { token: viewer })).status).toBe(200);
+    expect((await request("/api/browser/link", collector, { token: viewer })).status).toBe(200);
+    await request("/api/player", stranger, {});
+    expect((await request("/api/browser/link", stranger, { token: viewer })).status).toBe(409);
+    const response = await request("/api/state?day=2026-11-11", viewer, undefined, "null");
+    expect(response.headers.get("access-control-allow-origin")).toBe("null");
+    const bound = await response.json();
+    expect(bound).toMatchObject({ bound: true, todayAttacks: 1, player: { id: device.player.id, name: "已有角色" } });
+    expect(bound.room.id).toBe(room.id);
+    expect(bound.room.members.some((member) => member.id === guest.player.id)).toBe(false);
+    expect((await request("/api/attacks", viewer, { events: [event(2)] })).status).toBe(403);
+    await request("/api/attacks", collector, { events: [event(2)] });
+    expect((await (await request("/api/state", viewer)).json()).room.attacks).toHaveLength(1);
+    await request("/api/player", secondViewer, {});
+    const { code } = await (await request("/api/browser/code", secondViewer, {})).json();
+    expect(code).toMatch(/^[a-f0-9]{24}$/);
+    expect((await request("/api/browser/pair", collector, { code })).status).toBe(200);
+    expect((await request("/api/browser/pair", stranger, { code })).status).toBe(404);
+    expect((await (await request("/api/state", secondViewer)).json()).player.id).toBe(device.player.id);
   } finally {
     close();
   }
@@ -394,7 +456,7 @@ test("uses K for thousands of API calls and M for millions of tokens", () => {
 
 test("the Magpie page uses its configured port and falls back when the host bridge hangs", async () => {
   const script = readFileSync(new URL("../page/app.js", import.meta.url), "utf8");
-  function launch(magpie) {
+  function launch(magpie, hostedLobby = "") {
     const status = { textContent: "" };
     const address = { textContent: "" };
     const retry = { hidden: true, disabled: false, addEventListener() {} };
@@ -403,7 +465,10 @@ test("the Magpie page uses its configured port and falls back when the host brid
     const redirects = [];
     runInNewContext(script, {
       magpie,
-      document: { getElementById: (id) => elements[id] },
+      URL,
+      URLSearchParams,
+      crypto,
+      document: { documentElement: { dataset: { hostedLobby } }, getElementById: (id) => elements[id] },
       location: { replace: (target) => redirects.push(target) },
       setTimeout: (callback, delay) => {
         timers.set(delay, callback);
@@ -421,7 +486,7 @@ test("the Magpie page uses its configured port and falls back when the host brid
   expect(custom.timers.has(1500)).toBe(false);
 
   for (const bridge of [
-    { ready: new Promise(() => {}) },
+    { ready: new Promise(() => {}), options: { get: async () => ({}) } },
     { ready: Promise.resolve(), options: { get: () => new Promise(() => {}) } },
   ]) {
     const stalled = launch(bridge);
@@ -434,6 +499,25 @@ test("the Magpie page uses its configured port and falls back when the host brid
     expect(stalled.status.textContent).toContain("复制到浏览器");
     expect(stalled.retry).toMatchObject({ disabled: false, hidden: false });
   }
+
+  const origin = "https://boss.example.test";
+  let saved;
+  const cloud = launch({
+    ready: Promise.resolve(),
+    options: {
+      get: async () => ({ nickname: "小队" }),
+      set: async (options) => { saved = options; },
+    },
+  }, origin);
+  await Bun.sleep(0);
+  expect(saved).toMatchObject({ nickname: "小队", viewerOrigin: origin });
+  expect(saved.viewerToken).toMatch(/^web_[a-f0-9]{64}$/);
+  expect(cloud.redirects).toEqual([`${origin}/#viewer=${saved.viewerToken}`]);
+  expect(cloud.address.textContent).toBe(`${origin}/`);
+  const guest = launch({ options: { get: () => new Promise(() => {}) } }, origin);
+  guest.timers.get(1500)();
+  await Bun.sleep(0);
+  expect(guest.redirects).toEqual([`${origin}/`]);
 });
 
 test("local room serves browser assets and validates invitation actions", async () => {

@@ -24,16 +24,18 @@ BOSS_HOST=0.0.0.0 bun run room
 
 ## 部署到服务器
 
-1. 把 `package.json`、`room-server.mjs`、`boss.mjs` 和 `lobby-network.mjs` 放在服务器的同一目录。服务器只需 Bun，已验证的版本见上文。用服务管理器运行以下命令，`BOSS_DB` 指向持久化目录中的数据库文件，目录需要提前创建并可写。
+1. 把 `package.json`、`room-server.mjs`、`boss.mjs`、`lobby-network.mjs`、`web-assets.mjs`、`web/` 和 `page/format.js` 放到服务器，保留目录结构。使用 Bun 启动服务，`BOSS_DB` 指向持久化目录中的数据库文件，目录需要提前创建并可写。
 
    ```sh
-   BOSS_HOST=127.0.0.1 BOSS_PORT=8787 BOSS_DB=/path/to/data/boss-room.sqlite bun run room
+   BOSS_HOST=127.0.0.1 BOSS_PORT=8787 BOSS_DB=/path/to/data/boss-room.sqlite BOSS_PUBLIC_URL=https://boss.example.com bun run room
    ```
 
-2. 用 HTTPS 反向代理把独立域名转发到 `127.0.0.1:8787`。通过同事使用的公司网络或 VPN 访问该域名的 `/health`，应返回 `{"service":"magpie-boss"}`。当前大厅允许匿名注册，适合部署在公司可控的网络内。
-3. 在分发给同事的**插件完整包**中，将 `package.json` 的 `magpie.sharedLobby` 设为服务器地址，例如 `https://boss.example.com`。地址里无需加 `/health` 或其他路径。已经在高级选项配置过 `roomServer` 的玩家需要清空旧地址，它会覆盖安装包中的地址。
+2. 用 HTTPS 反向代理把域名转发到 `127.0.0.1:8787`。在 Railway 上，服务也可以自动使用 `RAILWAY_PUBLIC_DOMAIN`。访问首页可打开大厅，`/health` 返回 `{"service":"magpie-boss"}`。
+3. 在云端插件包中，把 `package.json` 的 `magpie.sharedLobby` 和 `page/index.html` 的 `data-hosted-lobby` 设为同一个 HTTPS 地址。高级选项中的 `roomServer` 会覆盖安装包的默认地址。
 
-同事启用插件后，新玩家会自动进入同一个公共大厅，私人房仍可用邀请码或邀请链接加入。服务器数据库包含已有房间和 Boss 进度。需要迁移旧大厅时，用 SQLite 的备份功能生成一致的数据库副本，再把副本放到服务器的 `BOSS_DB` 路径后启动服务。
+云端模式下，Magpie 直接打开服务器上的大厅，并自动绑定后台插件的玩家身份。后台插件通过 HTTPS 同步攻击。在普通浏览器中也可以先以访客身份加入房间，再从大厅的「绑定 Magpie」复制配对码，填入 Magpie Boss 的插件选项 `pairingCode`。绑定后使用 Magpie 角色的原有昵称和等级。网页显示当天已结算的攻击次数，调用量和 Token 留在本机。
+
+私人房可用邀请码或邀请链接加入。服务器数据库保存已有房间和 Boss 进度。需要迁移旧大厅时，用 SQLite 的备份功能生成一致的数据库副本，再把副本放到服务器的 `BOSS_DB` 路径后启动服务。
 
 ## 结算规则
 
@@ -46,7 +48,7 @@ BOSS_HOST=0.0.0.0 bun run room
 - 失败的网关请求也记入调用次数。Token 按输入、输出、缓存读写相加。调用满千用 K 显示，Token 满百万用 M 显示。一次 Agent 任务可能产生多条模型请求。后台启动会检查最近 7 天中首次启用之后的记录，平时轮询当天的记录。
 - 本机保存个人用量和待同步攻击，房间服务保存昵称、成员、经验和血量。同步发送的是攻击标识和日期，Token 和对话内容留在本机。重复同步同一攻击不会重复扣血。
 - 默认的房间服务数据库是项目目录下的 `boss-room.sqlite`，可通过 `BOSS_DB` 指定持久化路径。每位玩家的本机数据保存在 Magpie 配置目录下的 `magpie-boss/player.sqlite`。
-- 邀请页中的加入按钮使用默认本机端口 `3468`。如果通过插件选项修改了 `localPort`，可在本机房间页输入同一个数字邀请码。
+- 云端邀请链接直接打开云端大厅。局域网模式下，如果修改了 `localPort`，可以在本机房间页输入数字邀请码。
 
 从旧版升级时，重启房间服务并在 Magpie 里重新启用插件。升级会保留房间、血量、经验和击败数。旧版已记入用量的请求保留原结算结果，新请求按不限次数的规则处理。
 

@@ -1,5 +1,8 @@
 const byId = (id) => document.getElementById(id);
 const embedToken = document.documentElement.dataset.embedToken;
+const hosted = document.documentElement.dataset.hosted === "true";
+const viewerPattern = /^web_[a-f0-9]{64}$/;
+const viewerToken = hosted ? browserIdentity() : null;
 const format = new Intl.NumberFormat("zh-CN");
 const attackTime = new Intl.DateTimeFormat("zh-CN", {
   month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
@@ -17,10 +20,34 @@ let lobbyRevision;
 let displayedNickname;
 let playing = false;
 
+function browserIdentity() {
+  const fromMagpie = new URLSearchParams(location.hash.slice(1)).get("viewer");
+  if (viewerPattern.test(fromMagpie ?? "")) return fromMagpie;
+  try {
+    const saved = localStorage.getItem("magpie-boss-viewer");
+    if (viewerPattern.test(saved ?? "")) return saved;
+  } catch {
+    // Magpie's sandbox can block browser storage.
+  }
+  const token = "web_" + Array.from(crypto.getRandomValues(new Uint8Array(32)),
+    (byte) => byte.toString(16).padStart(2, "0")).join("");
+  try { localStorage.setItem("magpie-boss-viewer", token); } catch { /* Opaque origin. */ }
+  return token;
+}
+
+function today() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 async function request(path, body) {
   const headers = new Headers();
   if (embedToken) headers.set("X-Boss-Embed", embedToken);
+  if (viewerToken) headers.set("Authorization", `Bearer ${viewerToken}`);
   const options = { headers };
+  if (hosted) options.credentials = "omit";
   if (body !== undefined) {
     options.method = "POST";
     headers.set("Content-Type", "application/json");
@@ -28,7 +55,11 @@ async function request(path, body) {
   }
   const response = await fetch(path, options);
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error);
+  if (!response.ok) {
+    const error = new Error(result.error);
+    error.status = response.status;
+    throw error;
+  }
   return result;
 }
 
@@ -185,18 +216,30 @@ function renderLobby(rooms, room, player, localLobby) {
   }));
 }
 
-function render({ room, rooms = [], player, usage, usageOnline, roomOnline, inviteUrl, pending, localLobby }) {
-  byId("calls").textContent = formatCompactCount(usage.calls, 1000, "K");
-  byId("calls").title = format.format(usage.calls);
-  byId("tokens").textContent = formatCompactCount(usage.tokens, 1_000_000, "M");
-  byId("tokens").title = format.format(usage.tokens);
-  byId("attacks").textContent = format.format(usage.attacks);
+function render({ room, rooms = [], player, usage, usageOnline, roomOnline, inviteUrl, pending, localLobby, bound, todayAttacks }) {
+  byId("local-calls").hidden = hosted;
+  byId("local-tokens").hidden = hosted;
+  if (hosted) {
+    roomOnline = true;
+    inviteUrl = room?.code ? new URL(`/invite/${room.code}`, location.href).href : null;
+    byId("attacks").textContent = format.format(todayAttacks ?? 0);
+    byId("open-pair").hidden = Boolean(bound) || !room;
+    const pairing = byId("pair-dialog");
+    if (bound && pairing.open) pairing.close();
+  } else {
+    byId("calls").textContent = formatCompactCount(usage.calls, 1000, "K");
+    byId("calls").title = format.format(usage.calls);
+    byId("tokens").textContent = formatCompactCount(usage.tokens, 1_000_000, "M");
+    byId("tokens").title = format.format(usage.tokens);
+    byId("attacks").textContent = format.format(usage.attacks);
+  }
   const status = [];
-  if (!usageOnline) status.push("正在等待 Magpie 用量数据");
+  if (hosted) status.push(bound ? "Magpie 角色已绑定" : "访客 · 可加入房间");
+  else if (!usageOnline) status.push("正在等待 Magpie 用量数据");
   if (!roomOnline) status.push("房间服务暂时离线");
   if (pending) status.push(`${pending} 次攻击待同步`);
   byId("status").textContent = status.join(" · ") || "后台结算已开启";
-  byId("status").parentElement.dataset.online = String(usageOnline && roomOnline);
+  byId("status").parentElement.dataset.online = String(hosted || (usageOnline && roomOnline));
   for (const id of ["open-join", "open-create", "open-profile"]) byId(id).disabled = !roomOnline || !room;
   if (!room) return;
   renderLobby(rooms, room, player, localLobby);
@@ -225,9 +268,16 @@ function render({ room, rooms = [], player, usage, usageOnline, roomOnline, invi
 
 async function refresh() {
   try {
-    render(await request("/api/state"));
+    const path = hosted ? `/api/state?day=${today()}` : "/api/state";
+    try {
+      render(await request(path));
+    } catch (error) {
+      if (!hosted || error.status !== 404) throw error;
+      await request("/api/player", {});
+      render(await request(path));
+    }
   } catch {
-    byId("status").textContent = "本机插件暂时离线，请检查 Magpie 是否正在运行。";
+    byId("status").textContent = hosted ? "云端大厅暂时无法连接，正在重试。" : "本机插件暂时离线，请检查 Magpie 是否正在运行。";
     byId("status").parentElement.dataset.online = "false";
   }
 }
@@ -265,7 +315,9 @@ async function move(path, body, button) {
   try {
     const { room } = await request(path, body);
     byId("join-code").value = "";
-    if (!embedToken) history.replaceState(null, "", "/");
+    if (!embedToken && location.search) {
+      try { history.replaceState(null, "", `/${location.hash}`); } catch { /* Opaque origin. */ }
+    }
     dialog?.close();
     message(`已进入「${room.name}」。`);
     await refresh();
@@ -300,6 +352,17 @@ for (const id of ["show-battle", "open-battle"]) byId(id).addEventListener("clic
 byId("open-join").addEventListener("click", () => openDialog("join-dialog"));
 byId("open-create").addEventListener("click", () => openDialog("create-dialog"));
 byId("open-share").addEventListener("click", () => openDialog("share-dialog"));
+byId("open-pair").addEventListener("click", async () => {
+  const dialog = openDialog("pair-dialog");
+  byId("pair-code").value = "";
+  byId("copy-pair").disabled = true;
+  try {
+    byId("pair-code").value = (await request("/api/browser/code", {})).code;
+    byId("copy-pair").disabled = false;
+  } catch (error) {
+    message(error.message, dialog);
+  }
+});
 byId("open-profile").addEventListener("click", () => {
   byId("nickname").value = displayedNickname ?? "";
   openDialog("profile-dialog");
@@ -331,8 +394,7 @@ bindForm("profile-form", "rename", async (button) => {
 });
 byId("join-code").addEventListener("input", () => message("", byId("join-dialog")));
 
-async function copyInvite(source, label) {
-  const dialog = byId("share-dialog");
+async function copyInvite(source, label, dialog = byId("share-dialog")) {
   try {
     await navigator.clipboard.writeText(source.value ?? source.textContent);
     message(`已复制${label}。`, dialog);
@@ -345,6 +407,7 @@ async function copyInvite(source, label) {
 
 byId("copy").addEventListener("click", () => copyInvite(byId("invite-link"), "邀请链接"));
 byId("copy-code").addEventListener("click", () => copyInvite(byId("invite-code"), "邀请码"));
+byId("copy-pair").addEventListener("click", () => copyInvite(byId("pair-code"), "配对码", byId("pair-dialog")));
 
 async function init() {
   await refresh();

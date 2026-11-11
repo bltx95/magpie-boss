@@ -4,27 +4,20 @@ import { randomBytes } from "node:crypto";
 import { createPlayer } from "./player.mjs";
 import { createRoomService } from "./room-server.mjs";
 import { findLobby, lobbyFetch } from "./lobby-network.mjs";
+import { webAsset } from "./web-assets.mjs";
 import manifest from "./package.json";
 
 const DEFAULT_PORT = 3468;
 const INTERVAL_MS = 5000;
 const INVITE = /^\d{8}$/;
 
-const assets = new Map([
-  ["/", new URL("./web/index.html", import.meta.url)],
-  ["/app.js", new URL("./web/app.js", import.meta.url)],
-  ["/format.js", new URL("./page/format.js", import.meta.url)],
-  ["/style.css", new URL("./web/style.css", import.meta.url)],
-]);
-
 function json(body, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-export function createLocalHandler(player, origin) {
+function createLocalHandler(player, origin) {
   const expectedHost = new URL(origin).host;
   const embedToken = randomBytes(32).toString("hex");
-  const html = Bun.file(assets.get("/"));
   const cors = {
     "Access-Control-Allow-Origin": "null",
     "Access-Control-Allow-Methods": "GET, POST",
@@ -38,25 +31,13 @@ export function createLocalHandler(player, origin) {
     }
     const requestOrigin = request.headers.get("origin");
     if (request.method === "GET" && pathname === "/embedded") {
-      return new Response((await html.text()).replace('data-embed-token=""', `data-embed-token="${embedToken}"`), {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": `default-src ${origin}; base-uri 'none'; form-action 'none'; frame-ancestors wails:`,
-          "Referrer-Policy": "no-referrer",
-          "Cache-Control": "no-store",
-        },
+      return webAsset("/", `default-src ${origin}; base-uri 'none'; form-action 'none'; frame-ancestors wails:`, {
+        "embed-token": embedToken,
       });
     }
     if (request.method === "GET") {
-      if (assets.has(pathname)) {
-        const file = Bun.file(assets.get(pathname));
-        return new Response(file, { headers: {
-          "Content-Type": file.type,
-          "Content-Security-Policy": "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-          "X-Content-Type-Options": "nosniff",
-          "Cache-Control": "no-store",
-        } });
-      }
+      const asset = webAsset(pathname, "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+      if (asset) return asset;
     }
     if (requestOrigin === "null" && pathname.startsWith("/api/")) {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -118,7 +99,6 @@ async function start({ directory }, options) {
   const origin = `http://127.0.0.1:${port}`;
   let config;
   try {
-    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("本机房间端口无效");
     const roomServer = options.roomServer || manifest.magpie.sharedLobby;
     config = {
       directory: join(directory, "magpie-boss"),
@@ -128,6 +108,24 @@ async function start({ directory }, options) {
     };
   } catch {
     console.warn("Magpie Boss 配置无效，请检查房间地址和本机端口。");
+    return {};
+  }
+  if (config.roomServer?.startsWith("https:")) {
+    try {
+      const player = createPlayer({
+        ...config, fetcher: lobbyFetch,
+        viewerToken: options.viewerOrigin === config.roomServer ? options.viewerToken : undefined,
+        pairingCode: options.pairingCode,
+      });
+      poll(player);
+      console.info("Magpie Boss 已启动云端用量同步。");
+    } catch {
+      console.warn("Magpie Boss 无法启动云端用量同步，请检查插件目录。");
+    }
+    return {};
+  }
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    console.warn("Magpie Boss 本机房间端口无效。");
     return {};
   }
   let portBusy = false;
@@ -167,14 +165,19 @@ async function start({ directory }, options) {
       }
       return;
     }
-    const tick = async () => {
-      await player.tick();
-      setTimeout(tick, INTERVAL_MS).unref();
-    };
-    void tick();
+    poll(player);
   };
   await launch();
   return {};
 }
 
+function poll(player) {
+  const tick = async () => {
+    await player.tick();
+    setTimeout(tick, INTERVAL_MS).unref();
+  };
+  void tick();
+}
+
+export const _internal = { createLocalHandler, start };
 export default { id: "magpie-boss", server: start };
