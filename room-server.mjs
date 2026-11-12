@@ -16,6 +16,7 @@ const LEGACY_XP_PER_LEVEL = 50;
 const FIRST_LEVEL_XP = 250;
 const XP_STEP_PER_LEVEL = 100;
 const HISTORY_LIMIT = 30;
+const KILL_PAGE_SIZE = 20;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLIC_ROOM = "lobby";
 const HOUR_MS = 60 * 60 * 1000;
@@ -89,6 +90,7 @@ const hash = (value) => createHash("sha256").update(value).digest("hex");
 const browserPaths = new Set([
   "/api/state", "/api/player", "/api/rooms", "/api/rooms/join", "/api/profile",
   "/api/join", "/api/invite", "/api/home", "/api/browser/code", "/api/leaderboard",
+  "/api/member-damage", "/api/kills",
 ]);
 const browserCors = {
   "Access-Control-Allow-Origin": "null",
@@ -128,6 +130,7 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
     );
     CREATE INDEX IF NOT EXISTS attack_results_by_room ON attack_results(room_id, id DESC);
     CREATE INDEX IF NOT EXISTS attack_results_by_room_and_time ON attack_results(room_id, settled_at);
+    CREATE INDEX IF NOT EXISTS attack_results_kills ON attack_results(room_id, id DESC) WHERE hp = 0;
     CREATE INDEX IF NOT EXISTS attacks_by_player_and_day ON attacks(player_id, day);
     CREATE TABLE IF NOT EXISTS browser_links (
       browser_id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id)
@@ -187,6 +190,23 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
     WHERE a.room_id = ? AND a.settled_at >= ? AND a.settled_at < ?
     GROUP BY p.id HAVING SUM(a.damage) > 0
     ORDER BY damage DESC, p.name, p.id
+  `);
+  const memberDamage = db.query(`
+    SELECT a.player_id AS playerId, SUM(a.damage) AS totalDamage,
+      COUNT(DISTINCT date(a.settled_at, '+8 hours')) AS activeDays,
+      SUM(CASE WHEN a.settled_at >= ? AND a.settled_at < ? THEN a.damage ELSE 0 END) AS todayDamage
+    FROM attack_results a JOIN players p ON p.id = a.player_id AND p.room_id = a.room_id
+    WHERE a.room_id = ?
+    GROUP BY a.player_id
+  `);
+  const kills = db.query(`
+    SELECT a.id, a.player_id AS playerId, p.name AS playerName, a.settled_at AS settledAt,
+      COALESCE(a.boss_level, r.defeated - (
+        SELECT COUNT(*) FROM attack_results newer WHERE newer.room_id = a.room_id AND newer.hp = 0 AND newer.id > a.id
+      )) AS bossLevel
+    FROM attack_results a JOIN players p ON p.id = a.player_id JOIN rooms r ON r.id = a.room_id
+    WHERE a.room_id = ? AND a.hp = 0 AND a.id < ?
+    ORDER BY a.id DESC LIMIT ?
   `);
   const state = db.transaction((id) => {
     const self = player.get(id);
@@ -385,6 +405,30 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
       if (!range) return json({ error: "请选择有效日期" }, 400);
       const roomId = playerExists.room_id;
       return json({ day, roomId, rows: leaderboard.all(roomId, ...range) });
+    }
+    if (request.method === "GET" && pathname === "/api/member-damage") {
+      if (!playerExists) return json({ error: "玩家尚未注册" }, 404);
+      const roomId = playerExists.room_id;
+      const day = new Date(Date.now() + 8 * HOUR_MS).toISOString().slice(0, 10);
+      const rows = memberDamage.all(...leaderboardDayRange(day), roomId);
+      const best = rows.reduce((max, row) => Math.max(max, row.todayDamage), 0);
+      return json({ roomId, rows: rows.map(({ playerId, totalDamage, activeDays, todayDamage }) => ({
+        playerId, averageDamage: activeDays ? totalDamage / activeDays : 0,
+        todayMvp: best > 0 && todayDamage === best,
+      })) });
+    }
+    if (request.method === "GET" && pathname === "/api/kills") {
+      if (!playerExists) return json({ error: "玩家尚未注册" }, 404);
+      const before = searchParams.get("before") ?? String(Number.MAX_SAFE_INTEGER);
+      const cursor = Number(before);
+      if (!/^[1-9]\d*$/.test(before) || !Number.isSafeInteger(cursor)) return json({ error: "击杀记录页码无效" }, 400);
+      const roomId = playerExists.room_id;
+      const records = kills.all(roomId, cursor, KILL_PAGE_SIZE + 1);
+      const rows = records.slice(0, KILL_PAGE_SIZE).map(({ bossLevel, ...record }) => ({
+        ...record, bossLevel: bossLevel > 0 ? bossLevel : null,
+        bossName: bossLevel > 0 ? bossForLevel(bossLevel).name : "早期 Boss",
+      }));
+      return json({ roomId, rows, nextBefore: records.length > KILL_PAGE_SIZE ? rows.at(-1).id : null });
     }
     if (request.method !== "POST") return json({ error: "未知接口" }, 404);
 

@@ -183,6 +183,13 @@ export function createPlayer({
     leaderboard(day) {
       return requireRoom(`/api/leaderboard?${new URLSearchParams({ day })}`);
     },
+    memberDamage() {
+      return requireRoom("/api/member-damage");
+    },
+    kills(before) {
+      const query = before == null ? "" : `?${new URLSearchParams({ before })}`;
+      return requireRoom(`/api/kills${query}`);
+    },
     changeRoom(code) {
       return code ? moveTo("/api/join", { code }) : moveTo("/api/home", {});
     },

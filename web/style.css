@@ -379,35 +379,34 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 .stats dt { font-size: .74rem; }
 .stats dd { margin: .22rem 0 0; font-weight: 720; font-size: 1.15rem; overflow-wrap: anywhere; }
 #level-progress { color: #e4c9ff; font-size: .72rem; font-weight: 500; }
-.member-list { list-style: none; padding: 0; margin: 0; max-height: 8.5rem; overflow-y: auto; }
-.member-list li { padding: .3rem 0; color: #e6ddf1; font-size: .84rem; overflow-wrap: anywhere; }
-.leaderboard-panel { margin-top: .8rem; }
-.leaderboard-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .65rem; }
-.leaderboard-header p { margin-top: .22rem; font-size: .75rem; }
-.leaderboard-date { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
-.leaderboard-date input {
-  min-width: 0;
-  max-width: 100%;
-  min-height: 2.25rem;
-  padding: .3rem .55rem;
-  border: 1px solid #514063;
-  border-radius: .55rem;
-  background: #17121f;
-  color: inherit;
-  font-size: .8rem;
+.team-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; margin-bottom: .45rem; }
+.team-heading span, .member-damage-status { color: var(--muted); font-size: .74rem; }
+.member-list { list-style: none; padding: 0; margin: 0; max-height: 9rem; overflow-y: auto; }
+.member-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: .55rem;
+  padding-block: .36rem;
+  color: #e6ddf1;
+  font-size: .84rem;
 }
-.leaderboard-date button { min-height: 2.25rem; padding: .3rem .65rem; font-size: .8rem; }
-.leaderboard-message { margin-top: .9rem; font-size: .84rem; }
-.leaderboard-scroll { max-height: 17rem; overflow: auto; margin-top: .65rem; }
-.leaderboard-scroll table { width: 100%; border-spacing: 0; text-align: left; font-size: .85rem; }
-.leaderboard-scroll th, .leaderboard-scroll td { padding: .45rem .45rem; border-bottom: 1px solid var(--edge); }
-.leaderboard-scroll th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-size: .75rem; }
-.leaderboard-scroll tr:last-child td { border-bottom: 0; }
-.leaderboard-scroll :is(th, td):first-child { width: 3.75rem; }
-.leaderboard-scroll :is(th, td):last-child { width: 1%; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.leaderboard-scroll td:nth-child(2) { overflow-wrap: anywhere; }
-.leaderboard-scroll tr[data-self] { color: var(--accent); }
-.leaderboard-scroll td:last-child { font-weight: 700; }
+.member-list li + li { border-top: 1px solid var(--edge); }
+.member-list li[data-self] { color: var(--accent); }
+.member-person { display: flex; flex-wrap: wrap; align-items: baseline; gap: .16rem .4rem; min-width: 0; }
+.member-person span:first-child { overflow-wrap: anywhere; }
+.member-level { color: var(--muted); font-size: .73rem; white-space: nowrap; }
+.member-damage { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.member-badge { padding: .07rem .32rem; border-radius: .3rem; background: #3c3025; color: #f5d792; font-size: .66rem; white-space: nowrap; }
+.member-damage-status { margin-top: .4rem; }
+.kill-history ul { list-style: none; margin: 0; padding: 0; }
+.kill-history li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .55rem 1rem; padding-block: .7rem; }
+.kill-history li + li { border-top: 1px solid var(--edge); }
+.kill-history li > div { display: grid; gap: .22rem; overflow-wrap: anywhere; }
+.kill-history li > div:last-child { text-align: right; }
+.kill-history li strong { font-size: .88rem; }
+.kill-history li span, .kill-history li time, #kills-status { color: var(--muted); font-size: .76rem; }
+#kills-status:not([hidden]) + ul:not(:empty), #kills-more { margin-top: .7rem; }
 .history-panel { margin-top: .8rem; }
 #history-empty { font-size: .85rem; }
 .attack-history { padding: 0; margin: 0; list-style: none; max-height: 20rem; overflow-y: auto; }

@@ -172,7 +172,10 @@ try {
     assert.equal(ranks.roomId, joinedB.room.id);
     assert.deepEqual(ranks.rows.map(({ rank, damage }) => [rank, damage]), rankDays.filter((value) => value === day).map(() => [1, 10]));
   }
-  await checkBrowser(b.local, "命中 · 10 点伤害", "10 / 250 XP", 'id="open-guide"', "玩法指引", "房间伤害榜");
+  const memberDamage = await (await checked(`${b.local}/api/member-damage`)).json();
+  assert.equal(memberDamage.roomId, joinedB.room.id);
+  assert.deepEqual(memberDamage.rows.map(({ averageDamage }) => averageDamage), [10, 10]);
+  await checkBrowser(b.local, "命中 · 10 点伤害", "10 / 250 XP", 'id="open-guide"', "玩法指引", "日均伤害");
   console.log("没有打开房间页面时，两次真实网关请求让同一只 Boss 从 60 HP 降到 40 HP。");
 
   for (let attack = 0; attack < 3; attack++) await a.call();
@@ -188,6 +191,10 @@ try {
   assert.equal(levelTwo.room.attacks[0].hp, 0);
   assert.equal(levelTwo.room.attacks[0].bossLevel, 1);
   assert.equal(levelTwo.room.attacks[0].killXp, 20);
+  const kills = await (await checked(`${a.local}/api/kills`)).json();
+  assert.equal(kills.rows.length, 1);
+  assert.equal(kills.rows[0].bossLevel, 1);
+  assert.equal(kills.rows[0].playerId, levelTwo.player.id);
   await a.call();
   const progressed = await until(a.snapshot, (state) => state.room.hp === 70);
   assert.equal(progressed.room.attacks[0].bossLevel, 2);

@@ -275,6 +275,7 @@ test("ranks full daily damage in the current room using Beijing time, including 
       add(2, 4, "2026-11-11T16:00:00.000Z");
       add(3, 20, start);
       add(5, 1, start);
+      add(5, 0, "2026-11-08T16:00:00.000Z");
       add(4, 0, start);
       add(4, 500, start, "lobby");
     } finally {
@@ -299,6 +300,66 @@ test("ranks full daily damage in the current room using Beijing time, including 
       roomId: "lobby", rows: [{ playerName: "Drew", damage: 500 }],
     });
     expect((await rank("2026-11-11", 3)).rows).toEqual([]);
+    const members = await (await send("/api/member-damage", 1)).json();
+    expect(members.roomId).toBe(room.id);
+    expect(members.rows.map(({ playerId, averageDamage }) => [players.indexOf(playerId) + 1, averageDamage]).sort()).toEqual([
+      [1, 23], [2, 12], [5, .5],
+    ]);
+  } finally {
+    close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("rewards tied daily leaders and records the last hit on each boss beyond the recent combat feed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-kill-history-"));
+  const path = join(directory, "room.sqlite");
+  const { close, send } = useRoom(() => 99, path);
+  try {
+    const { player: alice } = await (await send("/api/player", 1, { nickname: "Alice" })).json();
+    const { player: bob } = await (await send("/api/player", 2, { nickname: "Bob" })).json();
+    await send("/api/player", 3, {});
+    const { room } = await (await send("/api/rooms", 1, { name: "研发组", visibility: "private" })).json();
+    await send("/api/join", 2, { code: room.code });
+    await send("/api/attacks", 1, { events: [event(1)] });
+    await send("/api/attacks", 2, { events: [event(2)] });
+    const stats = await (await send("/api/member-damage", 1)).json();
+    expect(stats.rows).toHaveLength(2);
+    expect(stats.rows.every(({ todayMvp, averageDamage }) => todayMvp && averageDamage === 10)).toBe(true);
+    await send("/api/attacks", 1, { events: [event(3), event(4), event(5)] });
+    const first = await (await send("/api/attacks", 2, { events: [event(6), event(6)] })).json();
+    expect(first.room.defeated).toBe(1);
+    const after = await (await send("/api/member-damage", 1)).json();
+    expect(after.rows.filter(({ todayMvp }) => todayMvp).map(({ playerId }) => playerId)).toEqual([alice.id]);
+    const history = await (await send("/api/kills", 1)).json();
+    expect(history).toMatchObject({ roomId: room.id, nextBefore: null, rows: [
+      { bossLevel: 1, bossName: "缓存怪", playerId: bob.id, playerName: "Bob" },
+    ] });
+    const db = new Database(path);
+    try {
+      db.query("UPDATE attack_results SET boss_level = NULL WHERE room_id = ? AND hp = 0").run(room.id);
+      const add = db.query(`INSERT INTO attack_results (room_id, player_id, outcome, damage, xp, hp, settled_at, boss_level)
+        VALUES (?, ?, 'hit', 10, 10, ?, '2026-11-09T16:00:00.000Z', ?)`);
+      for (let level = 2; level <= 22; level++) add.run(room.id, alice.id, 0, level);
+      add.run(room.id, bob.id, 1, 23);
+      db.query("UPDATE rooms SET defeated = 22 WHERE id = ?").run(room.id);
+    } finally {
+      db.close();
+    }
+    expect((await send("/api/kills", null)).status).toBe(401);
+    expect((await send("/api/kills?before=-1", 1)).status).toBe(400);
+    const page = await (await send("/api/kills", 1)).json();
+    expect(page.rows).toHaveLength(20);
+    expect(page.rows[0].bossLevel).toBe(22);
+    expect(page.rows.at(-1).bossLevel).toBe(3);
+    const tail = await (await send(`/api/kills?before=${page.nextBefore}`, 1)).json();
+    expect(tail.nextBefore).toBeNull();
+    expect(tail.rows.map(({ bossLevel, playerName }) => [bossLevel, playerName])).toEqual([[2, "Alice"], [1, "Bob"]]);
+    const outsider = await (await send(`/api/kills?roomId=${room.id}`, 3)).json();
+    expect(outsider).toEqual({ roomId: "lobby", rows: [], nextBefore: null });
+    await send("/api/home", 2, {});
+    const stillRecorded = await (await send(`/api/kills?before=${page.nextBefore}`, 1)).json();
+    expect(stillRecorded.rows.at(-1)).toMatchObject({ playerId: bob.id, playerName: "Bob" });
   } finally {
     close();
     rmSync(directory, { recursive: true, force: true });
@@ -355,6 +416,11 @@ test("the hosted lobby works independently and binds its browser to an existing 
     const rank = await request("/api/leaderboard?day=2026-01-01", viewer, undefined, "null");
     expect(rank.headers.get("access-control-allow-origin")).toBe("null");
     expect(await rank.json()).toMatchObject({ roomId: room.id, rows: [] });
+    for (const path of ["/api/member-damage", "/api/kills"]) {
+      const result = await request(path, viewer, undefined, "null");
+      expect(result.headers.get("access-control-allow-origin")).toBe("null");
+      expect(await result.json()).toMatchObject({ roomId: room.id, rows: [] });
+    }
     expect((await request("/api/attacks", viewer, { events: [event(2)] })).status).toBe(403);
     await request("/api/attacks", collector, { events: [event(2)] });
     expect((await (await request("/api/state", viewer)).json()).room.attacks).toHaveLength(1);
