@@ -423,7 +423,7 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
   width: clamp(5.4rem, 15vw, 9rem);
   aspect-ratio: 1;
   border-radius: .62rem;
-  background: #17121d url("/boss-portraits-v1.png") 100% 100% / 300% 200% no-repeat;
+  background: #17121d url("/boss-portraits-v1.jpg") 100% 100% / 300% 200% no-repeat;
   box-shadow: inset 0 0 0 1px #ffffff24;
 }
 .kill-portrait[data-skin="cache"] { background-position: 0 0; }

@@ -444,9 +444,9 @@ test("the hosted lobby works independently and binds its browser to an existing 
     expect(await page.text()).toContain('data-hosted="true"');
     expect((await request("/app.js")).status).toBe(200);
     expect((await request("/format.js")).status).toBe(200);
-    const portraits = await request("/boss-portraits-v1.png");
+    const portraits = await request("/boss-portraits-v1.jpg");
     expect(portraits.status).toBe(200);
-    expect(portraits.headers.get("content-type")).toBe("image/png");
+    expect(portraits.headers.get("content-type")).toBe("image/jpeg");
     expect(portraits.headers.get("cache-control")).toContain("immutable");
     const preflight = await fetch(new Request(`${origin}/api/state`, { method: "OPTIONS", headers: { Origin: "null" } }));
     expect(preflight.status).toBe(204);
