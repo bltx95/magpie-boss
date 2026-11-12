@@ -133,11 +133,9 @@
         </div>
         <button class="secondary" id="back-to-battle" type="button">返回战斗</button>
       </div>
-      <div class="panel kill-history">
-        <p id="kills-status" role="status">正在加载击杀记录…</p>
-        <ul id="kills-list"></ul>
-        <button class="secondary" id="kills-more" type="button" hidden>查看更早的击杀</button>
-      </div>
+      <p id="kills-status" class="records-status" role="status">正在加载击杀记录…</p>
+      <ul id="kills-list" class="kill-cards" aria-label="Boss 击杀记录"></ul>
+      <button class="secondary" id="kills-more" type="button" hidden>查看更早的击杀</button>
     </section>
     <section id="rankings-view" aria-labelledby="rankings-title" hidden>
       <div class="page-heading">
@@ -147,7 +145,7 @@
         </div>
         <button class="secondary" id="rankings-back" type="button">返回战斗</button>
       </div>
-      <div class="panel rankings-panel">
+      <div class="ranking-controls">
         <div class="ranking-filters" role="group" aria-label="排行榜类型">
           <button type="button" data-board="today" aria-pressed="true">今日伤害</button>
           <button type="button" data-board="week" aria-pressed="false">本周伤害</button>
@@ -156,11 +154,11 @@
           <button type="button" data-board="best-hit" aria-pressed="false">单击纪录</button>
         </div>
         <p id="ranking-description"></p>
-        <p id="ranking-status" role="status">正在加载排行榜…</p>
-        <table id="ranking-table" aria-describedby="ranking-description" hidden>
-          <thead><tr><th scope="col">排名</th><th scope="col">玩家</th><th scope="col" id="ranking-score-label">伤害</th></tr></thead>
-          <tbody id="ranking-rows"></tbody>
-        </table>
+      </div>
+      <p id="ranking-status" class="records-status" role="status">正在加载排行榜…</p>
+      <div id="ranking-results" aria-describedby="ranking-description" hidden>
+        <ol id="ranking-leaders" class="ranking-leaders" aria-label="领先玩家"></ol>
+        <ol id="ranking-rows" class="ranking-others" aria-label="其他上榜玩家"></ol>
       </div>
     </section>
     <p id="boss-announcement" class="sr-only" role="status"></p>

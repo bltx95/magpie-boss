@@ -386,7 +386,7 @@ test("rewards tied daily leaders and records the last hit on each boss beyond th
     expect(after.rows.filter(({ todayMvp }) => todayMvp).map(({ playerId }) => playerId)).toEqual([alice.id]);
     const history = await (await send("/api/kills", 1)).json();
     expect(history).toMatchObject({ roomId: room.id, nextBefore: null, rows: [
-      { bossLevel: 1, bossName: "缓存怪", playerId: bob.id, playerName: "Bob" },
+      { bossLevel: 1, bossName: "缓存怪", bossSkin: "cache", bossEvolved: false, playerId: bob.id, playerName: "Bob" },
     ] });
     const db = new Database(path);
     try {
@@ -404,6 +404,7 @@ test("rewards tied daily leaders and records the last hit on each boss beyond th
     const page = await (await send("/api/kills", 1)).json();
     expect(page.rows).toHaveLength(20);
     expect(page.rows[0].bossLevel).toBe(22);
+    expect(page.rows[0]).toMatchObject({ bossSkin: "ghost", bossEvolved: true });
     expect(page.rows.at(-1).bossLevel).toBe(3);
     const tail = await (await send(`/api/kills?before=${page.nextBefore}`, 1)).json();
     expect(tail.nextBefore).toBeNull();
@@ -443,6 +444,10 @@ test("the hosted lobby works independently and binds its browser to an existing 
     expect(await page.text()).toContain('data-hosted="true"');
     expect((await request("/app.js")).status).toBe(200);
     expect((await request("/format.js")).status).toBe(200);
+    const portraits = await request("/boss-portraits-v1.png");
+    expect(portraits.status).toBe(200);
+    expect(portraits.headers.get("content-type")).toBe("image/png");
+    expect(portraits.headers.get("cache-control")).toContain("immutable");
     const preflight = await fetch(new Request(`${origin}/api/state`, { method: "OPTIONS", headers: { Origin: "null" } }));
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-headers")).toContain("authorization");

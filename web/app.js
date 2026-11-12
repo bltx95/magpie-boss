@@ -20,7 +20,7 @@ const rankingBoards = {
   today: ["北京时间今日在本房造成的实际伤害。", "伤害"],
   week: ["北京时间周一零点起，在本房造成的实际伤害。", "伤害"],
   total: ["从有战报记录以来，在本房造成的累计伤害。", "伤害"],
-  kills: ["按在本房打出最后一击并击败 Boss 的次数排名。", "击杀数"],
+  kills: ["按在本房打出最后一击并击败 Boss 的次数排名。", "击杀"],
   "best-hit": ["在本房单次攻击造成的最高实际伤害。", "伤害"],
 };
 const outcomeLabels = {
@@ -304,30 +304,54 @@ function rankingStatus(text) {
   const status = byId("ranking-status");
   status.textContent = text;
   status.hidden = !text;
-  byId("ranking-table").hidden = Boolean(text);
+  byId("ranking-results").hidden = Boolean(text);
 }
 
 function renderRankings(rows) {
-  byId("ranking-rows").replaceChildren(...rows.map((entry) => {
-    const row = document.createElement("tr");
+  const [, metric] = rankingBoards[selectedBoard];
+  const best = rows[0]?.score ?? 0;
+  const cards = rows.map((entry) => {
+    const row = document.createElement("li");
+    row.className = "ranking-card";
     const self = entry.playerId === currentPlayerId;
     row.toggleAttribute("data-self", self);
-    row.toggleAttribute("data-first", entry.rank === 1);
-    const position = document.createElement("td");
+    if (entry.rank <= 3) row.dataset.medal = String(entry.rank);
+    const position = document.createElement("span");
+    position.className = "ranking-position";
     position.textContent = format.format(entry.rank);
-    const player = document.createElement("td");
-    player.textContent = `${entry.playerName}${self ? "（你）" : ""}`;
+    position.title = `第 ${entry.rank} 名`;
+    const player = document.createElement("div");
+    player.className = "ranking-player";
+    const avatar = document.createElement("span");
+    avatar.className = "ranking-avatar";
+    avatar.textContent = [...entry.playerName][0] ?? "·";
+    avatar.setAttribute("aria-hidden", "true");
+    const identity = document.createElement("div");
+    identity.className = "ranking-identity";
+    const name = document.createElement("strong");
+    name.textContent = `${entry.playerName}${self ? "（你）" : ""}`;
+    name.title = name.textContent;
+    identity.append(name);
     if (!entry.isMember) {
       const former = document.createElement("span");
       former.className = "rankings-former";
       former.textContent = "已离房";
-      player.append(former);
+      identity.append(former);
     }
-    const score = document.createElement("td");
-    score.textContent = format.format(entry.score);
+    player.append(avatar, identity);
+    const score = document.createElement("div");
+    score.className = "ranking-score";
+    const value = document.createElement("strong");
+    value.textContent = format.format(entry.score);
+    const unit = document.createElement("span");
+    unit.textContent = metric;
+    score.append(value, unit);
+    row.style.setProperty("--score-share", `${best ? 100 * entry.score / best : 0}%`);
     row.append(position, player, score);
     return row;
-  }));
+  });
+  byId("ranking-leaders").replaceChildren(...cards.slice(0, 3));
+  byId("ranking-rows").replaceChildren(...cards.slice(3));
   rankingStatus(rows.length ? "" : "这个榜单还没有记录。");
 }
 
@@ -360,28 +384,38 @@ function selectBoard(board) {
   for (const button of document.querySelectorAll("[data-board]")) {
     button.setAttribute("aria-pressed", String(button.dataset.board === board));
   }
-  const [description, metric] = rankingBoards[board];
+  const [description] = rankingBoards[board];
   byId("ranking-description").textContent = description;
-  byId("ranking-score-label").textContent = metric;
   void refreshRankings();
 }
 
 function killRow(record) {
   const item = document.createElement("li");
-  const boss = document.createElement("div");
-  const name = document.createElement("strong");
+  item.className = "kill-card";
+  item.style.setProperty("--portrait-hue", String(record.bossHue ?? 287));
+  item.toggleAttribute("data-evolved", Boolean(record.bossEvolved));
+  const details = document.createElement("div");
+  details.className = "kill-details";
+  const name = document.createElement("h2");
   name.textContent = record.bossName;
   const stage = document.createElement("span");
+  stage.className = "kill-stage";
   stage.textContent = record.bossLevel ? `第 ${format.format(record.bossLevel)} 关` : "关卡未记录";
-  boss.append(name, stage);
-  const finisher = document.createElement("div");
+  const finisher = document.createElement("p");
+  finisher.className = "kill-finisher";
   const player = document.createElement("strong");
   player.textContent = `${record.playerName}${record.playerId === currentPlayerId ? "（你）" : ""}`;
+  finisher.append("最后一击 ", player);
   const time = document.createElement("time");
   time.dateTime = record.settledAt;
   time.textContent = killTimeFormat.format(new Date(record.settledAt));
-  finisher.append(player, time);
-  item.append(boss, finisher);
+  time.title = "北京时间";
+  details.append(stage, name, finisher, time);
+  const portrait = document.createElement("div");
+  portrait.className = "kill-portrait";
+  portrait.dataset.skin = record.bossSkin ?? "unknown";
+  portrait.setAttribute("aria-hidden", "true");
+  item.append(details, portrait);
   return item;
 }
 

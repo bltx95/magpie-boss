@@ -454,10 +454,13 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
       if (!/^[1-9]\d*$/.test(before) || !Number.isSafeInteger(cursor)) return json({ error: "击杀记录页码无效" }, 400);
       const roomId = playerExists.room_id;
       const records = kills.all(roomId, cursor, KILL_PAGE_SIZE + 1);
-      const rows = records.slice(0, KILL_PAGE_SIZE).map(({ bossLevel, ...record }) => ({
-        ...record, bossLevel: bossLevel > 0 ? bossLevel : null,
-        bossName: bossLevel > 0 ? bossForLevel(bossLevel).name : "早期 Boss",
-      }));
+      const rows = records.slice(0, KILL_PAGE_SIZE).map(({ bossLevel, ...record }) => {
+        const boss = bossLevel > 0 ? bossForLevel(bossLevel) : null;
+        return {
+          ...record, bossLevel: boss ? bossLevel : null, bossName: boss?.name ?? "早期 Boss",
+          bossSkin: boss?.skin ?? "unknown", bossHue: boss?.hue ?? 287, bossEvolved: boss?.evolved ?? false,
+        };
+      });
       return json({ roomId, rows, nextBefore: records.length > KILL_PAGE_SIZE ? rows.at(-1).id : null });
     }
     if (request.method !== "POST") return json({ error: "未知接口" }, 404);

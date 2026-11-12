@@ -400,30 +400,91 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 .member-damage { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .member-badge { padding: .07rem .32rem; border-radius: .3rem; background: #3c3025; color: #f5d792; font-size: .66rem; white-space: nowrap; }
 .member-damage-status { margin-top: .4rem; }
-.kill-history ul { list-style: none; margin: 0; padding: 0; }
-.kill-history li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .55rem 1rem; padding-block: .7rem; }
-.kill-history li + li { border-top: 1px solid var(--edge); }
-.kill-history li > div { display: grid; gap: .22rem; overflow-wrap: anywhere; }
-.kill-history li > div:last-child { text-align: right; }
-.kill-history li strong { font-size: .88rem; }
-.kill-history li span, .kill-history li time, #kills-status { color: var(--muted); font-size: .76rem; }
-#kills-status:not([hidden]) + ul:not(:empty), #kills-more { margin-top: .7rem; }
-.ranking-filters { display: flex; flex-wrap: wrap; gap: .35rem; }
-.ranking-filters button { min-height: 2rem; padding: .3rem .55rem; border-color: var(--edge); color: var(--muted); font-size: .78rem; }
+.records-status { padding: 1rem; border: 1px dashed var(--edge); border-radius: .8rem; font-size: .83rem; }
+.kill-cards, .ranking-leaders, .ranking-others { list-style: none; padding: 0; margin: 0; }
+.kill-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 25rem), 1fr)); gap: .75rem; }
+.kill-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: clamp(.6rem, 2vw, 1rem);
+  align-items: center;
+  padding: clamp(.7rem, 2vw, 1rem);
+  border: 1px solid hsl(var(--portrait-hue) 28% 32%);
+  border-radius: .9rem;
+  background: linear-gradient(120deg, #1c1725 38%, hsl(var(--portrait-hue) 27% 20%));
+}
+.kill-details { min-width: 0; overflow-wrap: anywhere; }
+.kill-stage { color: hsl(var(--portrait-hue) 65% 80%); font-size: .72rem; font-weight: 700; }
+.kill-details h2 { margin: .28rem 0 .55rem; font-size: clamp(.96rem, 2.5vw, 1.22rem); }
+.kill-finisher { font-size: .82rem; }
+.kill-finisher strong { color: #f3e7fb; }
+.kill-details time { display: block; margin-top: .24rem; color: var(--muted); font-size: .73rem; }
+.kill-portrait {
+  width: clamp(5.4rem, 15vw, 9rem);
+  aspect-ratio: 1;
+  border-radius: .62rem;
+  background: #17121d url("/boss-portraits-v1.png") 100% 100% / 300% 200% no-repeat;
+  box-shadow: inset 0 0 0 1px #ffffff24;
+}
+.kill-portrait[data-skin="cache"] { background-position: 0 0; }
+.kill-portrait[data-skin="ghost"] { background-position: 50% 0; }
+.kill-portrait[data-skin="golem"] { background-position: 100% 0; }
+.kill-portrait[data-skin="slime"] { background-position: 0 100%; }
+.kill-portrait[data-skin="mirror"] { background-position: 50% 100%; }
+.kill-card[data-evolved] .kill-portrait { box-shadow: inset 0 0 0 1px hsl(var(--portrait-hue) 70% 70% / .75); }
+#kills-status:not([hidden]) + ul:not(:empty), #kills-more { margin-top: .8rem; }
+.ranking-controls { margin-bottom: .9rem; }
+.ranking-filters { display: flex; flex-wrap: wrap; gap: .4rem; }
+.ranking-filters button { min-height: 2.15rem; padding: .32rem .65rem; border-color: var(--edge); background: #191421; color: var(--muted); font-size: .79rem; }
 .ranking-filters button:hover { color: #fff; }
-.ranking-filters button[aria-pressed="true"] { border-color: #7954a2; background: #372945; color: #f3e5ff; }
-#ranking-description, #ranking-status { margin-top: .7rem; font-size: .8rem; }
-#ranking-table { width: 100%; margin-top: .65rem; border-spacing: 0; text-align: left; font-size: .86rem; }
-#ranking-table :is(th, td) { padding: .55rem .3rem; border-bottom: 1px solid var(--edge); }
-#ranking-table th { color: var(--muted); font-size: .74rem; font-weight: 600; white-space: nowrap; }
-#ranking-table tr:last-child td { border-bottom: 0; }
-#ranking-table :is(th, td):first-child { width: 3.1rem; font-variant-numeric: tabular-nums; }
-#ranking-table :is(th, td):last-child { width: 1%; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-#ranking-table td:nth-child(2) { overflow-wrap: anywhere; }
-#ranking-table td:last-child { font-weight: 700; }
-#ranking-table tr[data-first] td:first-child { color: #f5d792; font-weight: 700; }
-#ranking-table tr[data-self] { color: var(--accent); }
-.rankings-former { margin-left: .4rem; color: var(--muted); font-size: .7rem; white-space: nowrap; }
+.ranking-filters button[aria-pressed="true"] { border-color: #916eb6; background: #38284a; color: #f6eaff; }
+#ranking-description { margin-top: .55rem; font-size: .78rem; }
+.ranking-leaders { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .65rem; }
+.ranking-card {
+  --rank-accent: #d4baff;
+  position: relative;
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  gap: .6rem;
+  border: 1px solid var(--edge);
+  border-radius: .8rem;
+  background: var(--panel);
+}
+.ranking-card[data-medal="1"] { --rank-accent: #f5d792; }
+.ranking-card[data-medal="2"] { --rank-accent: #c7d7f1; }
+.ranking-card[data-medal="3"] { --rank-accent: #e5b194; }
+.ranking-card[data-self] { border-color: #825ea3; }
+.ranking-leaders .ranking-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: clamp(.7rem, 2vw, 1rem);
+  background: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--rank-accent) 13%, transparent), transparent 65%), var(--panel);
+}
+.ranking-leaders .ranking-position { grid-column: 2; grid-row: 1; }
+.ranking-leaders .ranking-player { grid-column: 1; grid-row: 1; }
+.ranking-leaders .ranking-score { grid-column: 1 / -1; }
+.ranking-position, .ranking-avatar { display: grid; place-items: center; border-radius: .42rem; }
+.ranking-position { min-width: 1.6rem; padding: .18rem .3rem; color: var(--rank-accent); background: #15111d; font-size: .74rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.ranking-player { display: flex; align-items: center; min-width: 0; gap: .45rem; }
+.ranking-avatar { flex: 0 0 1.8rem; height: 1.8rem; background: #3b2a50; color: #f1defe; font-size: .82rem; font-weight: 700; }
+.ranking-identity { min-width: 0; }
+.ranking-identity strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .86rem; }
+.rankings-former { color: var(--muted); font-size: .68rem; white-space: nowrap; }
+.ranking-score { display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .35rem; }
+.ranking-score strong { color: var(--rank-accent); font-size: clamp(1.3rem, 3.5vw, 2rem); line-height: 1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ranking-score span { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.ranking-others:not(:empty) { margin-top: .65rem; display: grid; gap: .4rem; }
+.ranking-others .ranking-card { grid-template-columns: auto minmax(0, 1fr) auto; padding: .48rem .65rem .62rem; }
+.ranking-others .ranking-score { justify-content: flex-end; }
+.ranking-others .ranking-score strong { font-size: .96rem; }
+.ranking-others .ranking-card::after {
+  content: "";
+  position: absolute;
+  inset: auto .65rem .26rem;
+  height: 2px;
+  border-radius: 1rem;
+  background: linear-gradient(to right, #9974bf var(--score-share), #2b2338 var(--score-share));
+}
 .history-panel { margin-top: .8rem; }
 #history-empty { font-size: .85rem; }
 .attack-history { padding: 0; margin: 0; list-style: none; max-height: 20rem; overflow-y: auto; }
@@ -528,6 +589,9 @@ dialog input:not([type="radio"]) {
   .view-nav button { flex: 1; }
   .page-heading { align-items: flex-start; flex-direction: column; }
   .toolbar { flex: initial; }
+  .ranking-leaders { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ranking-leaders .ranking-card:first-child, .ranking-leaders .ranking-card:last-child:nth-child(2) { grid-column: 1 / -1; }
+  .ranking-leaders .ranking-card:nth-child(n + 2) .ranking-avatar { display: none; }
   .current-room { grid-template-columns: minmax(0, 1fr) auto; gap: .8rem; }
   .current-art { height: 5rem; }
   .boss-line { max-inline-size: min(8rem, calc(100% + 1rem)); }
