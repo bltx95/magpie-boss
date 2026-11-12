@@ -89,10 +89,12 @@ async function playAttacks() {
   playing = true;
   const monster = byId("monster");
   const impact = byId("impact");
+  const stage = impact.parentElement;
   try {
     while (pendingAnimations.length) {
       const { damage, outcome, kind, hp, skillName, bossLevel, comboBonus, killXp } = pendingAnimations.shift();
       if (reducedMotion.matches || document.hidden || byId("battle-view").hidden) continue;
+      stage.classList.add("is-attacking");
       const effect = kind ?? outcome;
       impact.dataset.outcome = effect;
       const victory = hp === 0 ? ` · 击败${killXp ? ` +${format.format(killXp)} XP` : ""}` : "";
@@ -124,6 +126,7 @@ async function playAttacks() {
       impact.textContent = "";
     }
   } finally {
+    stage.classList.remove("is-attacking");
     playing = false;
   }
 }

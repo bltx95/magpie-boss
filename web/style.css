@@ -133,6 +133,7 @@ main { padding-block: 1.05rem calc(4rem + env(safe-area-inset-bottom)); }
 #lobby-boss { font-size: .88rem; }
 .current-art {
   width: clamp(7rem, 16vw, 10rem);
+  height: 7.2rem;
   background: radial-gradient(ellipse, #9670c633 0%, transparent 66%);
 }
 .current-art .monster { width: clamp(4.8rem, 9vw, 6.4rem); }
@@ -195,38 +196,45 @@ progress::-webkit-progress-bar { background: #17101e; border-radius: 999px; }
 progress::-webkit-progress-value { background: linear-gradient(90deg, #b176e9, #ed9ec6); border-radius: 999px; }
 progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec6); border-radius: 999px; }
 
-.monster-slot { position: relative; width: clamp(6.5rem, 20vw, 11rem); }
 .boss-portrait {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(2.55rem, auto);
-  justify-items: center;
-  align-items: start;
+  place-items: center;
 }
 .boss-trigger { padding: 0; border: 0; -webkit-tap-highlight-color: transparent; }
-.boss-trigger:is(:hover, :active) .monster { filter: drop-shadow(0 .3rem .8rem var(--boss-mid)); }
+.boss-trigger:active .monster { filter: drop-shadow(0 .3rem .8rem var(--boss-mid)); }
+@media (hover: hover) and (pointer: fine) {
+  .boss-trigger:hover .monster { filter: drop-shadow(0 .3rem .8rem var(--boss-mid)); }
+}
 .boss-line {
-  position: relative;
-  max-width: 100%;
-  padding: .28rem .45rem;
+  position: absolute;
+  z-index: 1;
+  inset-block-end: calc(100% - .65rem);
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  inline-size: max-content;
+  max-inline-size: min(10.5rem, calc(100% + 1rem));
+  padding: .34rem .55rem;
   border: 1px solid #8f69ac;
-  border-radius: .55rem;
-  background: #2b1e3b;
-  color: #f1dcff;
-  font-size: .74rem;
-  line-height: 1.35;
+  border-radius: .6rem;
+  background: #21162f;
+  box-shadow: 0 .3rem .8rem #0d09194d;
+  color: #f4e4ff;
+  font-size: .78rem;
+  line-height: 1.4;
   text-align: center;
   overflow-wrap: anywhere;
+  pointer-events: none;
 }
-.boss-line:empty { visibility: hidden; }
+.boss-line:empty, .is-attacking .boss-line { visibility: hidden; }
 .boss-line::before {
   content: "";
   position: absolute;
-  inset: -.27rem auto auto calc(50% - .25rem);
+  inset: auto auto -.27rem calc(50% - .25rem);
   width: .45rem;
   height: .45rem;
   border: solid #8f69ac;
-  border-width: 1px 0 0 1px;
+  border-width: 0 1px 1px 0;
   background: inherit;
   transform: rotate(45deg);
 }
@@ -300,6 +308,7 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 
 /* Keep idle motion on the body so attack animations can move the whole sprite. */
 @media (prefers-reduced-motion: no-preference) {
+  .boss-line:not(:empty) { animation: boss-line-in .18s ease-out; }
   .monster-body { animation: boss-breathe 3.6s ease-in-out infinite; }
   .monster-eyes { animation: boss-blink 5.8s ease-in-out infinite; }
   .monster[data-skin="ghost"] .monster-body { animation: boss-float 3s ease-in-out infinite; }
@@ -311,6 +320,10 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
   .monster[data-skin="mirror"] .monster-body { animation: boss-sway 4s ease-in-out infinite; }
 }
 
+@keyframes boss-line-in {
+  from { opacity: 0; transform: translate(-50%, .25rem); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
 @keyframes boss-breathe {
   0%, 100% { transform: none; }
   50% { transform: translateY(-4%) scale(1.035); }
@@ -473,6 +486,8 @@ dialog input:not([type="radio"]) {
   .page-heading { align-items: flex-start; flex-direction: column; }
   .toolbar { flex: initial; }
   .current-room { grid-template-columns: minmax(0, 1fr) auto; gap: .8rem; }
+  .current-art { height: 5rem; }
+  .boss-line { max-inline-size: min(8rem, calc(100% + 1rem)); }
   .current-health { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .current-health p { align-self: end; }
   #lobby-hp { grid-row: 2; margin-bottom: 0; align-self: start; }
