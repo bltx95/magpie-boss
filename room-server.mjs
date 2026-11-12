@@ -18,6 +18,16 @@ const XP_STEP_PER_LEVEL = 100;
 const HISTORY_LIMIT = 30;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLIC_ROOM = "lobby";
+const HOUR_MS = 60 * 60 * 1000;
+
+function leaderboardDayRange(day) {
+  if (!DATE.test(day)) return null;
+  const midnight = Date.parse(`${day}T00:00:00Z`);
+  if (!Number.isFinite(midnight) || new Date(midnight).toISOString().slice(0, 10) !== day) return null;
+  // Rank all players on the same UTC+8 calendar day, regardless of their local clocks.
+  const start = midnight - 8 * HOUR_MS;
+  return [new Date(start).toISOString(), new Date(start + 24 * HOUR_MS).toISOString()];
+}
 
 function bossMaxHp(defeated) {
   const extra = Math.max(0, defeated - 4);
@@ -78,7 +88,7 @@ const json = (body, status = 200) => Response.json(body, {
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const browserPaths = new Set([
   "/api/state", "/api/player", "/api/rooms", "/api/rooms/join", "/api/profile",
-  "/api/join", "/api/invite", "/api/home", "/api/browser/code",
+  "/api/join", "/api/invite", "/api/home", "/api/browser/code", "/api/leaderboard",
 ]);
 const browserCors = {
   "Access-Control-Allow-Origin": "null",
@@ -117,6 +127,7 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
       attack_kind TEXT, base_damage INTEGER, combo_bonus INTEGER, kill_xp INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS attack_results_by_room ON attack_results(room_id, id DESC);
+    CREATE INDEX IF NOT EXISTS attack_results_by_room_and_time ON attack_results(room_id, settled_at);
     CREATE INDEX IF NOT EXISTS attacks_by_player_and_day ON attacks(player_id, day);
     CREATE TABLE IF NOT EXISTS browser_links (
       browser_id TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id)
@@ -169,6 +180,14 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
   `);
   const roomById = db.query("SELECT id, owner_id, visibility FROM rooms WHERE id = ?");
   const player = db.query("SELECT id, name, room_id, xp, starting_level, level_start_xp FROM players WHERE id = ?");
+  const leaderboard = db.query(`
+    SELECT p.id AS playerId, p.name AS playerName, SUM(a.damage) AS damage,
+      RANK() OVER (ORDER BY SUM(a.damage) DESC) AS rank
+    FROM attack_results a JOIN players p ON p.id = a.player_id
+    WHERE a.room_id = ? AND a.settled_at >= ? AND a.settled_at < ?
+    GROUP BY p.id HAVING SUM(a.damage) > 0
+    ORDER BY damage DESC, p.name, p.id
+  `);
   const state = db.transaction((id) => {
     const self = player.get(id);
     const { boss_turn: turn, owner_id: ownerId, max_hp: maxHp, ...room } = db.query(`
@@ -358,6 +377,14 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
       if (!browser) return json(current);
       const day = searchParams.get("day") ?? "";
       return json({ ...current, bound: Boolean(linked), todayAttacks: DATE.test(day) ? attackCount.get(id, day).total : 0 });
+    }
+    if (request.method === "GET" && pathname === "/api/leaderboard") {
+      if (!playerExists) return json({ error: "玩家尚未注册" }, 404);
+      const day = searchParams.get("day") ?? "";
+      const range = leaderboardDayRange(day);
+      if (!range) return json({ error: "请选择有效日期" }, 400);
+      const roomId = playerExists.room_id;
+      return json({ day, roomId, rows: leaderboard.all(roomId, ...range) });
     }
     if (request.method !== "POST") return json({ error: "未知接口" }, 404);
 

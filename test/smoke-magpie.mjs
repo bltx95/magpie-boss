@@ -166,7 +166,13 @@ try {
   assert.deepEqual(joinedB.usage, { calls: 1, tokens: 100, attacks: 1 });
   assert.equal(joinedA.room.attacks.length, 2);
   assert.deepEqual(joinedA.room.attacks, joinedB.room.attacks);
-  await checkBrowser(b.local, "命中 · 10 点伤害", "10 / 250 XP", 'id="open-guide"', "玩法指引");
+  const rankDays = joinedB.room.attacks.map(({ settledAt }) => new Date(Date.parse(settledAt) + 8 * 3600000).toISOString().slice(0, 10));
+  for (const day of new Set(rankDays)) {
+    const ranks = await (await checked(`${b.local}/api/leaderboard?day=${day}`)).json();
+    assert.equal(ranks.roomId, joinedB.room.id);
+    assert.deepEqual(ranks.rows.map(({ rank, damage }) => [rank, damage]), rankDays.filter((value) => value === day).map(() => [1, 10]));
+  }
+  await checkBrowser(b.local, "命中 · 10 点伤害", "10 / 250 XP", 'id="open-guide"', "玩法指引", "房间伤害榜");
   console.log("没有打开房间页面时，两次真实网关请求让同一只 Boss 从 60 HP 降到 40 HP。");
 
   for (let attack = 0; attack < 3; attack++) await a.call();

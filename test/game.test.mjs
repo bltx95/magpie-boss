@@ -249,6 +249,62 @@ test("room service validates auth and attack payloads", async () => {
   }
 });
 
+test("ranks full daily damage in the current room using Beijing time, including players who left", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-leaderboard-"));
+  const path = join(directory, "room.sqlite");
+  const { close, send } = useRoom(() => 99, path);
+  try {
+    const players = [];
+    for (const [index, nickname] of ["Alice", "Bob", "Carol", "Drew", "Eve"].entries()) {
+      const { player } = await (await send("/api/player", index + 1, { nickname })).json();
+      players.push(player.id);
+    }
+    const { room } = await (await send("/api/rooms", 1, { name: "组内测试", visibility: "private" })).json();
+    for (const number of [2, 3, 5]) await send("/api/join", number, { code: room.code });
+    await send("/api/home", 3, {});
+    const db = new Database(path);
+    try {
+      const record = db.query(`INSERT INTO attack_results (room_id, player_id, outcome, damage, xp, hp, settled_at)
+        VALUES (?, ?, 'hit', ?, 0, 60, ?)`);
+      const add = (player, damage, at, roomId = room.id) => record.run(roomId, players[player - 1], damage, at);
+      const start = "2026-11-10T16:00:00.000Z";
+      for (let attack = 0; attack < 35; attack++) add(1, 1, start);
+      add(1, 2, "2026-11-11T15:59:59.999Z");
+      add(1, 9, "2026-11-10T15:59:59.999Z");
+      add(2, 20, start);
+      add(2, 4, "2026-11-11T16:00:00.000Z");
+      add(3, 20, start);
+      add(5, 1, start);
+      add(4, 0, start);
+      add(4, 500, start, "lobby");
+    } finally {
+      db.close();
+    }
+
+    const api = "/api/leaderboard?day=";
+    expect((await send(api + "2026-11-11")).status).toBe(401);
+    expect((await send(api + "2026-11-11", 9)).status).toBe(404);
+    expect((await send(api + "2026-02-30", 1)).status).toBe(400);
+    expect((await send(api, 1)).status).toBe(400);
+    const rank = async (day, number = 1) => (await send(api + day, number)).json();
+    const current = await rank("2026-11-11");
+    expect(current).toMatchObject({ day: "2026-11-11", roomId: room.id });
+    expect(current.rows.map(({ playerName, damage, rank }) => [playerName, damage, rank])).toEqual([
+      ["Alice", 37, 1], ["Bob", 20, 2], ["Carol", 20, 2], ["Eve", 1, 4],
+    ]);
+    expect((await rank("2026-11-10")).rows).toMatchObject([{ playerName: "Alice", damage: 9 }]);
+    expect((await rank("2026-11-12")).rows).toMatchObject([{ playerName: "Bob", damage: 4 }]);
+    expect((await rank("2026-11-09")).rows).toEqual([]);
+    expect(await rank(`2026-11-11&roomId=${room.id}`, 4)).toMatchObject({
+      roomId: "lobby", rows: [{ playerName: "Drew", damage: 500 }],
+    });
+    expect((await rank("2026-11-11", 3)).rows).toEqual([]);
+  } finally {
+    close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("the hosted lobby works independently and binds its browser to an existing Magpie player", async () => {
   const origin = "https://boss.example.test";
   const { fetch, close } = createRoomService(":memory:", { hosted: true, publicOrigin: origin });
@@ -296,6 +352,9 @@ test("the hosted lobby works independently and binds its browser to an existing 
     expect(bound).toMatchObject({ bound: true, todayAttacks: 1, player: { id: device.player.id, name: "已有角色" } });
     expect(bound.room.id).toBe(room.id);
     expect(bound.room.members.some((member) => member.id === guest.player.id)).toBe(false);
+    const rank = await request("/api/leaderboard?day=2026-01-01", viewer, undefined, "null");
+    expect(rank.headers.get("access-control-allow-origin")).toBe("null");
+    expect(await rank.json()).toMatchObject({ roomId: room.id, rows: [] });
     expect((await request("/api/attacks", viewer, { events: [event(2)] })).status).toBe(403);
     await request("/api/attacks", collector, { events: [event(2)] });
     expect((await (await request("/api/state", viewer)).json()).room.attacks).toHaveLength(1);
@@ -532,6 +591,12 @@ test("collects requests while offline, syncs every eligible attack, and retains 
     await player.tick();
     const first = player.snapshot();
     expect(first).toMatchObject({ pending: 0, room: { hp: 23 }, player: { xp: 40 } });
+    const rankDayFor = ({ settledAt }) => new Date(Date.parse(settledAt) + 8 * 3600000).toISOString().slice(0, 10);
+    const rankDay = rankDayFor(first.room.attacks[0]);
+    const damage = first.room.attacks.filter((attack) => rankDayFor(attack) === rankDay).reduce((sum, attack) => sum + attack.damage, 0);
+    expect(await player.leaderboard(rankDay)).toMatchObject({
+      roomId: first.room.id, rows: [{ playerId: first.player.id, playerName: "Local player", damage, rank: 1 }],
+    });
     expect(attackPayloads).toHaveLength(1);
     expect(attackPayloads[0].events).toHaveLength(4);
     expect(Object.keys(attackPayloads[0].events[0]).sort()).toEqual(["day", "id"]);
@@ -675,7 +740,10 @@ test("local room serves browser assets and validates invitation actions", async 
 
 test("Magpie iframe requests need the per-page token before CORS permits local actions", async () => {
   const origin = "http://127.0.0.1:3468";
-  const player = { snapshot: () => ({ online: true }), rename: async (nickname) => ({ nickname }) };
+  const player = {
+    snapshot: () => ({ online: true }), rename: async (nickname) => ({ nickname }),
+    leaderboard: async (day) => ({ day, rows: [] }),
+  };
   const handler = createLocalHandler(player, origin);
   const request = (path, init = {}) => handler(new Request(origin + path, {
     ...init, headers: { host: "127.0.0.1:3468", ...init.headers },
@@ -685,6 +753,11 @@ test("Magpie iframe requests need the per-page token before CORS permits local a
   const token = (await boot.text()).match(/data-embed-token="([a-f0-9]{64})"/)?.[1];
   expect(token).toBeTruthy();
   expect((await request("/api/state", { headers: { origin: "null" } })).status).toBe(403);
+  const rankPath = "/api/leaderboard?day=2026-11-11";
+  expect((await request(rankPath, { headers: { origin: "null" } })).status).toBe(403);
+  const rank = await request(rankPath, { headers: { origin: "null", "x-boss-embed": token } });
+  expect(rank.headers.get("access-control-allow-origin")).toBe("null");
+  expect(await rank.json()).toEqual({ day: "2026-11-11", rows: [] });
   const preflight = await request("/api/profile", { method: "OPTIONS", headers: { origin: "null" } });
   expect(preflight.status).toBe(204);
   expect(preflight.headers.get("access-control-allow-origin")).toBe("null");

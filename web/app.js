@@ -9,6 +9,9 @@ const format = new Intl.NumberFormat("zh-CN");
 const attackTime = new Intl.DateTimeFormat("zh-CN", {
   month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
 });
+const leaderboardDayFormat = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+});
 const outcomeLabels = {
   hit: "命中", critical: "暴击", dodge: "Boss 闪避", counter: "Boss 反击",
   overpower: "重暴击", followUp: "追击", execute: "斩杀", instant: "秒杀",
@@ -40,6 +43,9 @@ let lobbyRevision;
 let displayedNickname;
 let playing = false;
 let openCurrentRoom = !hasInvite;
+let currentPlayerId;
+let followLeaderboardToday = true;
+let leaderboard;
 
 function browserIdentity() {
   const fromMagpie = new URLSearchParams(location.hash.slice(1)).get("viewer");
@@ -210,6 +216,57 @@ function renderBoss(room) {
   if (!protection.hidden) protection.textContent = `斩杀与秒杀只在血量 ≤ ${boss.finisherThreshold}% 且未触发技能时生效。`;
 }
 
+function leaderboardStatus(text) {
+  const status = byId("leaderboard-message");
+  status.textContent = text;
+  status.hidden = !text;
+  byId("leaderboard-table").hidden = Boolean(text);
+}
+
+function renderLeaderboard(rows, playerId) {
+  byId("leaderboard-rows").replaceChildren(...rows.map((entry) => {
+    const row = document.createElement("tr");
+    const self = entry.playerId === playerId;
+    row.toggleAttribute("data-self", self);
+    const cells = [format.format(entry.rank), `${entry.playerName}${self ? "（你）" : ""}`, format.format(entry.damage)];
+    for (const text of cells) {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      row.append(cell);
+    }
+    return row;
+  }));
+  leaderboardStatus(rows.length ? "" : "当天还没有造成伤害的记录。");
+}
+
+async function refreshLeaderboard() {
+  if (byId("battle-view").hidden || !displayedRoom) return;
+  const latest = leaderboardDayFormat.format(new Date());
+  const input = byId("leaderboard-day");
+  input.max = latest;
+  if (followLeaderboardToday) input.value = latest;
+  const day = input.value;
+  byId("leaderboard-today").disabled = day === latest;
+  const key = `${displayedRoom}/${currentPlayerId}/${day}`;
+  if (leaderboard?.key !== key) {
+    leaderboard = { key, roomId: displayedRoom, playerId: currentPlayerId, loaded: false, pending: false };
+    leaderboardStatus(day && input.validity.valid ? "正在加载伤害榜…" : "请选择有效日期。");
+  }
+  const view = leaderboard;
+  if (!day || !input.validity.valid || view.pending || (view.loaded && day !== latest)) return;
+  view.pending = true;
+  try {
+    const result = await request(`/api/leaderboard?${new URLSearchParams({ day })}`);
+    if (view !== leaderboard || result.roomId !== view.roomId) return;
+    renderLeaderboard(result.rows, view.playerId);
+    view.loaded = true;
+  } catch {
+    if (view === leaderboard && !view.loaded) leaderboardStatus("暂时无法加载伤害榜，稍后重试。");
+  } finally {
+    view.pending = false;
+  }
+}
+
 function renderLobby(rooms, room, player, localLobby) {
   byId("lobby-scope").hidden = !localLobby;
   byId("current-room").hidden = false;
@@ -288,6 +345,7 @@ function render({ room, rooms = [], player, usage, usageOnline, roomOnline, invi
   byId("hp").value = room.hp;
   byId("hp-label").textContent = room.hp ? `${room.hp} / ${room.maxHp} HP` : "Boss 已击败";
   byId("victories").textContent = `累计击败 ${room.defeated} 只`;
+  currentPlayerId = player.id;
   renderHistory(room, player);
   byId("open-share").hidden = Boolean(localLobby);
   byId("public-invite").hidden = Boolean(room.code) || localLobby;
@@ -305,6 +363,8 @@ function render({ room, rooms = [], player, usage, usageOnline, roomOnline, invi
   // Keep pairing available while an unbound visitor is still in the default lobby.
   if (openCurrentRoom && (!hosted || bound || room.id !== "lobby") && !document.querySelector("dialog[open]")) {
     showView("battle");
+  } else {
+    void refreshLeaderboard();
   }
 }
 
@@ -337,6 +397,7 @@ function showView(view) {
   }
   window.scrollTo(0, 0);
   byId(battle ? "room-name" : "lobby-title").focus({ preventScroll: true });
+  if (battle) void refreshLeaderboard();
 }
 
 function bindBossSpeech() {
@@ -437,6 +498,14 @@ function bindForm(formId, buttonId, submit) {
 
 byId("show-lobby").addEventListener("click", () => showView("lobby"));
 for (const id of ["show-battle", "open-battle"]) byId(id).addEventListener("click", () => showView("battle"));
+byId("leaderboard-day").addEventListener("change", (event) => {
+  followLeaderboardToday = event.target.value === leaderboardDayFormat.format(new Date());
+  void refreshLeaderboard();
+});
+byId("leaderboard-today").addEventListener("click", () => {
+  followLeaderboardToday = true;
+  void refreshLeaderboard();
+});
 byId("open-join").addEventListener("click", () => openDialog("join-dialog"));
 byId("open-create").addEventListener("click", () => openDialog("create-dialog"));
 byId("open-share").addEventListener("click", () => openDialog("share-dialog"));

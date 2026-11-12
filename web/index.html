@@ -113,6 +113,26 @@
           </section>
         </aside>
       </div>
+      <section class="panel leaderboard-panel" aria-labelledby="leaderboard-title">
+        <div class="leaderboard-header">
+          <div>
+            <h2 id="leaderboard-title">房间伤害榜</h2>
+            <p>按北京时间的结算日期汇总</p>
+          </div>
+          <div class="leaderboard-date">
+            <label class="sr-only" for="leaderboard-day">榜单日期（北京时间）</label>
+            <input id="leaderboard-day" type="date">
+            <button class="secondary" id="leaderboard-today" type="button">今天</button>
+          </div>
+        </div>
+        <p class="leaderboard-message" id="leaderboard-message" role="status">正在加载伤害榜…</p>
+        <div class="leaderboard-scroll" id="leaderboard-table" tabindex="0" role="region" aria-labelledby="leaderboard-title" hidden>
+          <table aria-labelledby="leaderboard-title">
+            <thead><tr><th scope="col">排名</th><th scope="col">玩家</th><th scope="col">总伤害</th></tr></thead>
+            <tbody id="leaderboard-rows"></tbody>
+          </table>
+        </div>
+      </section>
       <section class="panel history-panel" aria-labelledby="history-title">
         <h2 id="history-title">攻击明细</h2>
         <p id="history-empty">这间房还没有新的攻击记录。</p>

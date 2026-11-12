@@ -25,7 +25,8 @@ function createLocalHandler(player, origin) {
     Vary: "Origin",
   };
   return async (request) => {
-    const { pathname, host } = new URL(request.url);
+    const url = new URL(request.url);
+    const { pathname, host } = url;
     if (request.headers.get("host") !== expectedHost || host !== expectedHost) {
       return json({ error: "请从本机地址打开房间" }, 403);
     }
@@ -42,28 +43,31 @@ function createLocalHandler(player, origin) {
     if (requestOrigin === "null" && pathname.startsWith("/api/")) {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
       if (request.headers.get("x-boss-embed") !== embedToken) return json({ error: "页面会话已失效" }, 403);
-      const response = await handleAction(request, pathname);
+      const response = await handleAction(request, url);
       for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);
       return response;
     }
     if (request.method === "POST" && requestOrigin !== origin) return json({ error: "请求来源无效" }, 403);
-    return handleAction(request, pathname);
+    return handleAction(request, url);
   };
 
-  async function handleAction(request, pathname) {
-    if (request.method === "GET" && pathname === "/api/state") return json(player.snapshot());
-    if (request.method !== "POST") return json({ error: "找不到此页面" }, 404);
-    let body;
+  async function handleAction(request, { pathname, searchParams }) {
     try {
-      body = await request.json();
-    } catch {
-      return json({ error: "请求格式无效" }, 400);
-    }
-    const code = body?.code;
-    if (["/api/invite", "/api/join"].includes(pathname) && (typeof code !== "string" || !INVITE.test(code))) {
-      return json({ error: "请输入 8 位数字邀请码" }, 400);
-    }
-    try {
+      if (request.method === "GET" && pathname === "/api/state") return json(player.snapshot());
+      if (request.method === "GET" && pathname === "/api/leaderboard") {
+        return json(await player.leaderboard(searchParams.get("day") ?? ""));
+      }
+      if (request.method !== "POST") return json({ error: "找不到此页面" }, 404);
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "请求格式无效" }, 400);
+      }
+      const code = body?.code;
+      if (["/api/invite", "/api/join"].includes(pathname) && (typeof code !== "string" || !INVITE.test(code))) {
+        return json({ error: "请输入 8 位数字邀请码" }, 400);
+      }
       if (pathname === "/api/home") return json(await player.changeRoom());
       if (pathname === "/api/invite") return json(await player.preview(code));
       if (pathname === "/api/join") return json(await player.changeRoom(code));

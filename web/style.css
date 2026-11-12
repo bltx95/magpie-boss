@@ -381,6 +381,33 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 #level-progress { color: #e4c9ff; font-size: .72rem; font-weight: 500; }
 .member-list { list-style: none; padding: 0; margin: 0; max-height: 8.5rem; overflow-y: auto; }
 .member-list li { padding: .3rem 0; color: #e6ddf1; font-size: .84rem; overflow-wrap: anywhere; }
+.leaderboard-panel { margin-top: .8rem; }
+.leaderboard-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .65rem; }
+.leaderboard-header p { margin-top: .22rem; font-size: .75rem; }
+.leaderboard-date { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.leaderboard-date input {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.25rem;
+  padding: .3rem .55rem;
+  border: 1px solid #514063;
+  border-radius: .55rem;
+  background: #17121f;
+  color: inherit;
+  font-size: .8rem;
+}
+.leaderboard-date button { min-height: 2.25rem; padding: .3rem .65rem; font-size: .8rem; }
+.leaderboard-message { margin-top: .9rem; font-size: .84rem; }
+.leaderboard-scroll { max-height: 17rem; overflow: auto; margin-top: .65rem; }
+.leaderboard-scroll table { width: 100%; border-spacing: 0; text-align: left; font-size: .85rem; }
+.leaderboard-scroll th, .leaderboard-scroll td { padding: .45rem .45rem; border-bottom: 1px solid var(--edge); }
+.leaderboard-scroll th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-size: .75rem; }
+.leaderboard-scroll tr:last-child td { border-bottom: 0; }
+.leaderboard-scroll :is(th, td):first-child { width: 3.75rem; }
+.leaderboard-scroll :is(th, td):last-child { width: 1%; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.leaderboard-scroll td:nth-child(2) { overflow-wrap: anywhere; }
+.leaderboard-scroll tr[data-self] { color: var(--accent); }
+.leaderboard-scroll td:last-child { font-weight: 700; }
 .history-panel { margin-top: .8rem; }
 #history-empty { font-size: .85rem; }
 .attack-history { padding: 0; margin: 0; list-style: none; max-height: 20rem; overflow-y: auto; }

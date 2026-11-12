@@ -180,6 +180,9 @@ export function createPlayer({
     preview(code) {
       return requireRoom("/api/invite", { code });
     },
+    leaderboard(day) {
+      return requireRoom(`/api/leaderboard?${new URLSearchParams({ day })}`);
+    },
     changeRoom(code) {
       return code ? moveTo("/api/join", { code }) : moveTo("/api/home", {});
     },
