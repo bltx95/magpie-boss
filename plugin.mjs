@@ -58,6 +58,7 @@ function createLocalHandler(player, origin) {
         return json(await player.leaderboard(searchParams.get("day") ?? ""));
       }
       if (request.method === "GET" && pathname === "/api/member-damage") return json(await player.memberDamage());
+      if (request.method === "GET" && pathname === "/api/rankings") return json(await player.rankings(searchParams.get("board") ?? "today"));
       if (request.method === "GET" && pathname === "/api/kills") return json(await player.kills(searchParams.get("before")));
       if (request.method !== "POST") return json({ error: "找不到此页面" }, 404);
       let body;

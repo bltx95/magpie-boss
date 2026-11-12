@@ -186,6 +186,9 @@ export function createPlayer({
     memberDamage() {
       return requireRoom("/api/member-damage");
     },
+    rankings(board) {
+      return requireRoom(`/api/rankings?${new URLSearchParams({ board })}`);
+    },
     kills(before) {
       const query = before == null ? "" : `?${new URLSearchParams({ before })}`;
       return requireRoom(`/api/kills${query}`);

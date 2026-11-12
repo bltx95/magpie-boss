@@ -300,11 +300,64 @@ test("ranks full daily damage in the current room using Beijing time, including 
       roomId: "lobby", rows: [{ playerName: "Drew", damage: 500 }],
     });
     expect((await rank("2026-11-11", 3)).rows).toEqual([]);
+  } finally {
+    close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("ranks weekly and daily damage, cumulative damage, last hits and best hits within the room", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-multi-rankings-"));
+  const path = join(directory, "room.sqlite");
+  const { close, send } = useRoom(() => 99, path);
+  try {
+    const ids = [];
+    for (const [index, nickname] of ["Alice", "Bob", "Carol", "Drew"].entries()) {
+      const { player } = await (await send("/api/player", index + 1, { nickname })).json();
+      ids.push(player.id);
+    }
+    const { room } = await (await send("/api/rooms", 1, { name: "排行测试", visibility: "private" })).json();
+    for (const number of [2, 3]) await send("/api/join", number, { code: room.code });
+    await send("/api/home", 3, {});
+    const dayMs = 86400000;
+    const offset = 8 * 3600000;
+    const today = Math.floor((Date.now() + offset) / dayMs) * dayMs - offset;
+    const week = today - ((new Date(today + offset).getUTCDay() + 6) % 7) * dayMs;
+    const db = new Database(path);
+    try {
+      const insert = db.query(`INSERT INTO attack_results (room_id, player_id, outcome, damage, xp, hp, settled_at)
+        VALUES (?, ?, 'hit', ?, 0, ?, ?)`);
+      const record = (player, damage, hp, timestamp, roomId = room.id) => {
+        insert.run(roomId, ids[player - 1], damage, hp, new Date(timestamp).toISOString());
+      };
+      record(1, 70, 0, week - 1);
+      record(2, 1, 0, week - 1);
+      record(1, 15, 10, week);
+      record(1, 20, 10, today);
+      record(2, 20, 0, today);
+      record(3, 20, 10, today);
+      record(4, 500, 0, today, "lobby");
+    } finally {
+      db.close();
+    }
+    const rankPath = "/api/rankings?board=";
+    const board = async (key, player = 1) => (await send(rankPath + key, player)).json();
+    const scores = async (key) => (await board(key)).rows.map(({ playerName, score, rank }) => [playerName, score, rank]);
+    expect((await send(rankPath + "bad", 1)).status).toBe(400);
+    expect((await send(rankPath + "today", null)).status).toBe(401);
+    const aliceToday = today === week ? 35 : 20;
+    expect(await scores("today")).toEqual([["Alice", aliceToday, 1], ["Bob", 20, today === week ? 2 : 1], ["Carol", 20, today === week ? 2 : 1]]);
+    expect(await scores("week")).toEqual([["Alice", 35, 1], ["Bob", 20, 2], ["Carol", 20, 2]]);
+    expect(await scores("total")).toEqual([["Alice", 105, 1], ["Bob", 21, 2], ["Carol", 20, 3]]);
+    expect(await scores("kills")).toEqual([["Bob", 2, 1], ["Alice", 1, 2]]);
+    expect(await scores("best-hit")).toEqual([["Alice", 70, 1], ["Bob", 20, 2], ["Carol", 20, 2]]);
+    expect((await board("total")).rows.at(-1)).toMatchObject({ playerName: "Carol", isMember: 0 });
+    expect(await board(`total&roomId=${room.id}`, 4)).toMatchObject({
+      roomId: "lobby", rows: [{ playerName: "Drew", score: 500 }],
+    });
     const members = await (await send("/api/member-damage", 1)).json();
     expect(members.roomId).toBe(room.id);
-    expect(members.rows.map(({ playerId, averageDamage }) => [players.indexOf(playerId) + 1, averageDamage]).sort()).toEqual([
-      [1, 23], [2, 12], [5, .5],
-    ]);
+    expect(members.rows.map(({ playerId, todayDamage }) => [ids.indexOf(playerId) + 1, todayDamage]).sort()).toEqual([[1, aliceToday], [2, 20]]);
   } finally {
     close();
     rmSync(directory, { recursive: true, force: true });
@@ -325,7 +378,7 @@ test("rewards tied daily leaders and records the last hit on each boss beyond th
     await send("/api/attacks", 2, { events: [event(2)] });
     const stats = await (await send("/api/member-damage", 1)).json();
     expect(stats.rows).toHaveLength(2);
-    expect(stats.rows.every(({ todayMvp, averageDamage }) => todayMvp && averageDamage === 10)).toBe(true);
+    expect(stats.rows.every(({ todayMvp, todayDamage }) => todayMvp && todayDamage === 10)).toBe(true);
     await send("/api/attacks", 1, { events: [event(3), event(4), event(5)] });
     const first = await (await send("/api/attacks", 2, { events: [event(6), event(6)] })).json();
     expect(first.room.defeated).toBe(1);
@@ -416,7 +469,7 @@ test("the hosted lobby works independently and binds its browser to an existing 
     const rank = await request("/api/leaderboard?day=2026-01-01", viewer, undefined, "null");
     expect(rank.headers.get("access-control-allow-origin")).toBe("null");
     expect(await rank.json()).toMatchObject({ roomId: room.id, rows: [] });
-    for (const path of ["/api/member-damage", "/api/kills"]) {
+    for (const path of ["/api/member-damage", "/api/kills", "/api/rankings"]) {
       const result = await request(path, viewer, undefined, "null");
       expect(result.headers.get("access-control-allow-origin")).toBe("null");
       expect(await result.json()).toMatchObject({ roomId: room.id, rows: [] });

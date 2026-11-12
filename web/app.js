@@ -12,10 +12,17 @@ const attackTime = new Intl.DateTimeFormat("zh-CN", {
 const beijingDayFormat = new Intl.DateTimeFormat("sv-SE", {
   timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
 });
-const averageFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
 const killTimeFormat = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short",
 });
+const viewTitles = { lobby: "lobby-title", battle: "room-name", kills: "kills-title", rankings: "rankings-title" };
+const rankingBoards = {
+  today: ["北京时间今日在本房造成的实际伤害。", "伤害"],
+  week: ["北京时间周一零点起，在本房造成的实际伤害。", "伤害"],
+  total: ["从有战报记录以来，在本房造成的累计伤害。", "伤害"],
+  kills: ["按在本房打出最后一击并击败 Boss 的次数排名。", "击杀数"],
+  "best-hit": ["在本房单次攻击造成的最高实际伤害。", "伤害"],
+};
 const outcomeLabels = {
   hit: "命中", critical: "暴击", dodge: "Boss 闪避", counter: "Boss 反击",
   overpower: "重暴击", followUp: "追击", execute: "斩杀", instant: "秒杀",
@@ -52,6 +59,8 @@ let roomMembers = [];
 let memberDamage;
 let membersRevision;
 let killHistory;
+let selectedBoard = "today";
+let rankingView;
 
 function browserIdentity() {
   const fromMagpie = new URLSearchParams(location.hash.slice(1)).get("viewer");
@@ -227,11 +236,19 @@ function renderMembers(rows) {
   if (membersRevision === revision) return;
   membersRevision = revision;
   const stats = new Map((rows ?? []).map((row) => [row.playerId, row]));
-  byId("members").replaceChildren(...roomMembers.map((member) => {
+  const score = (member) => stats.get(member.id)?.todayDamage ?? 0;
+  const sorted = [...roomMembers].sort((a, b) => score(b) - score(a));
+  let rank = 0;
+  byId("members").replaceChildren(...sorted.map((member, index) => {
     const item = document.createElement("li");
     const self = member.id === currentPlayerId;
     const contribution = stats.get(member.id);
+    const points = score(member);
     item.toggleAttribute("data-self", self);
+    const position = document.createElement("span");
+    position.className = "member-rank";
+    if (index === 0 || points !== score(sorted[index - 1])) rank = index + 1;
+    position.textContent = points > 0 ? format.format(rank) : "—";
     const person = document.createElement("div");
     person.className = "member-person";
     const name = document.createElement("span");
@@ -249,8 +266,8 @@ function renderMembers(rows) {
     }
     const damage = document.createElement("strong");
     damage.className = "member-damage";
-    damage.textContent = rows ? averageFormat.format(contribution?.averageDamage ?? 0) : "—";
-    item.append(person, damage);
+    damage.textContent = rows ? format.format(points) : "—";
+    item.append(position, person, damage);
     return item;
   }));
 }
@@ -258,14 +275,14 @@ function renderMembers(rows) {
 async function refreshMemberDamage() {
   if (byId("battle-view").hidden || !displayedRoom) return;
   const status = byId("member-damage-status");
-  if (memberDamage?.roomId !== displayedRoom) {
-    memberDamage = { roomId: displayedRoom, rows: null };
+  const day = beijingDayFormat.format(new Date());
+  if (memberDamage?.roomId !== displayedRoom || memberDamage.day !== day) {
+    memberDamage = { roomId: displayedRoom, day, rows: null };
     status.hidden = true;
   }
   const view = memberDamage;
   renderMembers(view.rows);
-  const day = beijingDayFormat.format(new Date());
-  const key = `${day}/${lastAttackId}/${roomMembers.map((member) => member.id).join(",")}`;
+  const key = `${lastAttackId}/${roomMembers.map((member) => member.id).join(",")}`;
   if (view.loadedKey === key || view.pendingKey === key) return;
   view.pendingKey = key;
   const stillCurrent = () => view === memberDamage && view.roomId === displayedRoom && view.pendingKey === key;
@@ -281,6 +298,72 @@ async function refreshMemberDamage() {
   } finally {
     if (view.pendingKey === key) view.pendingKey = null;
   }
+}
+
+function rankingStatus(text) {
+  const status = byId("ranking-status");
+  status.textContent = text;
+  status.hidden = !text;
+  byId("ranking-table").hidden = Boolean(text);
+}
+
+function renderRankings(rows) {
+  byId("ranking-rows").replaceChildren(...rows.map((entry) => {
+    const row = document.createElement("tr");
+    const self = entry.playerId === currentPlayerId;
+    row.toggleAttribute("data-self", self);
+    row.toggleAttribute("data-first", entry.rank === 1);
+    const position = document.createElement("td");
+    position.textContent = format.format(entry.rank);
+    const player = document.createElement("td");
+    player.textContent = `${entry.playerName}${self ? "（你）" : ""}`;
+    if (!entry.isMember) {
+      const former = document.createElement("span");
+      former.className = "rankings-former";
+      former.textContent = "已离房";
+      player.append(former);
+    }
+    const score = document.createElement("td");
+    score.textContent = format.format(entry.score);
+    row.append(position, player, score);
+    return row;
+  }));
+  rankingStatus(rows.length ? "" : "这个榜单还没有记录。");
+}
+
+async function refreshRankings() {
+  if (byId("rankings-view").hidden || !displayedRoom) return;
+  if (rankingView?.roomId !== displayedRoom || rankingView.board !== selectedBoard) {
+    rankingView = { roomId: displayedRoom, board: selectedBoard };
+    rankingStatus("正在加载排行榜…");
+  }
+  const view = rankingView;
+  const day = beijingDayFormat.format(new Date());
+  const key = JSON.stringify([day, lastAttackId, currentPlayerId, roomMembers.map(({ id, name }) => [id, name])]);
+  if (view.loadedKey === key || view.pendingKey === key) return;
+  view.pendingKey = key;
+  const stillCurrent = () => view === rankingView && view.pendingKey === key && view.roomId === displayedRoom;
+  try {
+    const result = await request(`/api/rankings?${new URLSearchParams({ board: view.board })}`);
+    if (!stillCurrent() || result.roomId !== view.roomId || result.board !== view.board) return;
+    view.loadedKey = key;
+    renderRankings(result.rows);
+  } catch {
+    if (stillCurrent() && !view.loadedKey) rankingStatus("暂时无法加载排行榜，稍后重试。");
+  } finally {
+    if (view.pendingKey === key) view.pendingKey = null;
+  }
+}
+
+function selectBoard(board) {
+  selectedBoard = board;
+  for (const button of document.querySelectorAll("[data-board]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.board === board));
+  }
+  const [description, metric] = rankingBoards[board];
+  byId("ranking-description").textContent = description;
+  byId("ranking-score-label").textContent = metric;
+  void refreshRankings();
 }
 
 function killRow(record) {
@@ -409,11 +492,12 @@ function render({ room, rooms = [], player, usage, usageOnline, roomOnline, invi
   if (pending) status.push(`${pending} 次攻击待同步`);
   byId("status").textContent = status.join(" · ") || "后台结算已开启";
   byId("status").parentElement.dataset.online = String(hosted || (usageOnline && roomOnline));
-  for (const id of ["open-join", "open-create", "open-profile", "open-kills"]) byId(id).disabled = !roomOnline || !room;
+  for (const id of ["open-join", "open-create", "open-profile", "open-kills", "open-rankings"]) byId(id).disabled = !roomOnline || !room;
   if (!room) return;
   renderLobby(rooms, room, player, localLobby);
   byId("room-name").textContent = room.name;
   byId("kills-room-name").textContent = room.name;
+  byId("rankings-room-name").textContent = room.name;
   renderBoss(room);
   byId("level").textContent = format.format(player.level);
   const levelProgress = byId("level-progress");
@@ -442,6 +526,7 @@ function render({ room, rooms = [], player, usage, usageOnline, roomOnline, invi
   } else {
     void refreshMemberDamage();
     syncKillHistory();
+    void refreshRankings();
   }
 }
 
@@ -465,10 +550,7 @@ function showView(view) {
   openCurrentRoom = false;
   const battle = view === "battle";
   const lobby = view === "lobby";
-  const kills = view === "kills";
-  byId("lobby-view").hidden = !lobby;
-  byId("battle-view").hidden = !battle;
-  byId("kills-view").hidden = !kills;
+  for (const page of Object.keys(viewTitles)) byId(`${page}-view`).hidden = page !== view;
   byId("show-lobby").setAttribute("aria-pressed", String(lobby));
   byId("show-battle").setAttribute("aria-pressed", String(battle));
   if (!battle) {
@@ -476,11 +558,15 @@ function showView(view) {
     for (const id of ["monster", "impact"]) byId(id).getAnimations().forEach((animation) => animation.cancel());
   }
   window.scrollTo(0, 0);
-  byId(battle ? "room-name" : kills ? "kills-title" : "lobby-title").focus({ preventScroll: true });
+  byId(viewTitles[view]).focus({ preventScroll: true });
   if (battle) void refreshMemberDamage();
-  if (kills) {
+  if (view === "kills") {
     killHistory = null;
     syncKillHistory();
+  }
+  if (view === "rankings") {
+    rankingView = null;
+    selectBoard(selectedBoard);
   }
 }
 
@@ -581,9 +667,13 @@ function bindForm(formId, buttonId, submit) {
 }
 
 byId("show-lobby").addEventListener("click", () => showView("lobby"));
-for (const id of ["show-battle", "open-battle", "back-to-battle"]) byId(id).addEventListener("click", () => showView("battle"));
+for (const id of ["show-battle", "open-battle", "back-to-battle", "rankings-back"]) byId(id).addEventListener("click", () => showView("battle"));
 byId("open-kills").addEventListener("click", () => showView("kills"));
 byId("kills-more").addEventListener("click", () => { void loadKills(); });
+byId("open-rankings").addEventListener("click", () => showView("rankings"));
+for (const button of document.querySelectorAll("[data-board]")) {
+  button.addEventListener("click", () => selectBoard(button.dataset.board));
+}
 byId("open-join").addEventListener("click", () => openDialog("join-dialog"));
 byId("open-create").addEventListener("click", () => openDialog("create-dialog"));
 byId("open-share").addEventListener("click", () => openDialog("share-dialog"));

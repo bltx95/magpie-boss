@@ -384,7 +384,7 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 .member-list { list-style: none; padding: 0; margin: 0; max-height: 9rem; overflow-y: auto; }
 .member-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1.35rem minmax(0, 1fr) auto;
   align-items: baseline;
   gap: .55rem;
   padding-block: .36rem;
@@ -393,6 +393,7 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 }
 .member-list li + li { border-top: 1px solid var(--edge); }
 .member-list li[data-self] { color: var(--accent); }
+.member-rank { color: var(--muted); font-size: .73rem; font-variant-numeric: tabular-nums; }
 .member-person { display: flex; flex-wrap: wrap; align-items: baseline; gap: .16rem .4rem; min-width: 0; }
 .member-person span:first-child { overflow-wrap: anywhere; }
 .member-level { color: var(--muted); font-size: .73rem; white-space: nowrap; }
@@ -407,6 +408,22 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #b176e9, #ed9ec
 .kill-history li strong { font-size: .88rem; }
 .kill-history li span, .kill-history li time, #kills-status { color: var(--muted); font-size: .76rem; }
 #kills-status:not([hidden]) + ul:not(:empty), #kills-more { margin-top: .7rem; }
+.ranking-filters { display: flex; flex-wrap: wrap; gap: .35rem; }
+.ranking-filters button { min-height: 2rem; padding: .3rem .55rem; border-color: var(--edge); color: var(--muted); font-size: .78rem; }
+.ranking-filters button:hover { color: #fff; }
+.ranking-filters button[aria-pressed="true"] { border-color: #7954a2; background: #372945; color: #f3e5ff; }
+#ranking-description, #ranking-status { margin-top: .7rem; font-size: .8rem; }
+#ranking-table { width: 100%; margin-top: .65rem; border-spacing: 0; text-align: left; font-size: .86rem; }
+#ranking-table :is(th, td) { padding: .55rem .3rem; border-bottom: 1px solid var(--edge); }
+#ranking-table th { color: var(--muted); font-size: .74rem; font-weight: 600; white-space: nowrap; }
+#ranking-table tr:last-child td { border-bottom: 0; }
+#ranking-table :is(th, td):first-child { width: 3.1rem; font-variant-numeric: tabular-nums; }
+#ranking-table :is(th, td):last-child { width: 1%; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#ranking-table td:nth-child(2) { overflow-wrap: anywhere; }
+#ranking-table td:last-child { font-weight: 700; }
+#ranking-table tr[data-first] td:first-child { color: #f5d792; font-weight: 700; }
+#ranking-table tr[data-self] { color: var(--accent); }
+.rankings-former { margin-left: .4rem; color: var(--muted); font-size: .7rem; white-space: nowrap; }
 .history-panel { margin-top: .8rem; }
 #history-empty { font-size: .85rem; }
 .attack-history { padding: 0; margin: 0; list-style: none; max-height: 20rem; overflow-y: auto; }

@@ -20,6 +20,11 @@ const KILL_PAGE_SIZE = 20;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PUBLIC_ROOM = "lobby";
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+function currentBeijingDay() {
+  return new Date(Date.now() + 8 * HOUR_MS).toISOString().slice(0, 10);
+}
 
 function leaderboardDayRange(day) {
   if (!DATE.test(day)) return null;
@@ -27,7 +32,14 @@ function leaderboardDayRange(day) {
   if (!Number.isFinite(midnight) || new Date(midnight).toISOString().slice(0, 10) !== day) return null;
   // Rank all players on the same UTC+8 calendar day, regardless of their local clocks.
   const start = midnight - 8 * HOUR_MS;
-  return [new Date(start).toISOString(), new Date(start + 24 * HOUR_MS).toISOString()];
+  return [new Date(start).toISOString(), new Date(start + DAY_MS).toISOString()];
+}
+
+function leaderboardWeekRange(day) {
+  const [todayStart] = leaderboardDayRange(day);
+  const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
+  const monday = Date.parse(todayStart) - ((weekday + 6) % 7) * DAY_MS;
+  return [new Date(monday).toISOString(), new Date(monday + 7 * DAY_MS).toISOString()];
 }
 
 function bossMaxHp(defeated) {
@@ -90,7 +102,7 @@ const hash = (value) => createHash("sha256").update(value).digest("hex");
 const browserPaths = new Set([
   "/api/state", "/api/player", "/api/rooms", "/api/rooms/join", "/api/profile",
   "/api/join", "/api/invite", "/api/home", "/api/browser/code", "/api/leaderboard",
-  "/api/member-damage", "/api/kills",
+  "/api/member-damage", "/api/kills", "/api/rankings",
 ]);
 const browserCors = {
   "Access-Control-Allow-Origin": "null",
@@ -183,20 +195,24 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
   `);
   const roomById = db.query("SELECT id, owner_id, visibility FROM rooms WHERE id = ?");
   const player = db.query("SELECT id, name, room_id, xp, starting_level, level_start_xp FROM players WHERE id = ?");
-  const leaderboard = db.query(`
-    SELECT p.id AS playerId, p.name AS playerName, SUM(a.damage) AS damage,
-      RANK() OVER (ORDER BY SUM(a.damage) DESC) AS rank
+  const rankBy = (score, filter = "") => db.query(`
+    SELECT p.id AS playerId, p.name AS playerName, p.room_id = a.room_id AS isMember,
+      ${score} AS score, RANK() OVER (ORDER BY ${score} DESC) AS rank
     FROM attack_results a JOIN players p ON p.id = a.player_id
-    WHERE a.room_id = ? AND a.settled_at >= ? AND a.settled_at < ?
-    GROUP BY p.id HAVING SUM(a.damage) > 0
-    ORDER BY damage DESC, p.name, p.id
+    WHERE a.room_id = ? ${filter}
+    GROUP BY p.id HAVING ${score} > 0
+    ORDER BY score DESC, p.name, p.id
   `);
+  const periodDamageRanking = rankBy("SUM(a.damage)", "AND a.settled_at >= ? AND a.settled_at < ?");
+  const allTimeRankings = new Map([
+    ["total", rankBy("SUM(a.damage)")],
+    ["kills", rankBy("COUNT(*)", "AND a.hp = 0")],
+    ["best-hit", rankBy("MAX(a.damage)")],
+  ]);
   const memberDamage = db.query(`
-    SELECT a.player_id AS playerId, SUM(a.damage) AS totalDamage,
-      COUNT(DISTINCT date(a.settled_at, '+8 hours')) AS activeDays,
-      SUM(CASE WHEN a.settled_at >= ? AND a.settled_at < ? THEN a.damage ELSE 0 END) AS todayDamage
+    SELECT a.player_id AS playerId, SUM(a.damage) AS todayDamage
     FROM attack_results a JOIN players p ON p.id = a.player_id AND p.room_id = a.room_id
-    WHERE a.room_id = ?
+    WHERE a.room_id = ? AND a.settled_at >= ? AND a.settled_at < ?
     GROUP BY a.player_id
   `);
   const kills = db.query(`
@@ -404,18 +420,32 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
       const range = leaderboardDayRange(day);
       if (!range) return json({ error: "请选择有效日期" }, 400);
       const roomId = playerExists.room_id;
-      return json({ day, roomId, rows: leaderboard.all(roomId, ...range) });
+      const rows = periodDamageRanking.all(roomId, ...range).map(({ score, playerId, playerName, rank }) => ({
+        playerId, playerName, damage: score, rank,
+      }));
+      return json({ day, roomId, rows });
     }
     if (request.method === "GET" && pathname === "/api/member-damage") {
       if (!playerExists) return json({ error: "玩家尚未注册" }, 404);
       const roomId = playerExists.room_id;
-      const day = new Date(Date.now() + 8 * HOUR_MS).toISOString().slice(0, 10);
-      const rows = memberDamage.all(...leaderboardDayRange(day), roomId);
+      const rows = memberDamage.all(roomId, ...leaderboardDayRange(currentBeijingDay()));
       const best = rows.reduce((max, row) => Math.max(max, row.todayDamage), 0);
-      return json({ roomId, rows: rows.map(({ playerId, totalDamage, activeDays, todayDamage }) => ({
-        playerId, averageDamage: activeDays ? totalDamage / activeDays : 0,
-        todayMvp: best > 0 && todayDamage === best,
+      return json({ roomId, rows: rows.map((row) => ({
+        ...row, todayMvp: best > 0 && row.todayDamage === best,
       })) });
+    }
+    if (request.method === "GET" && pathname === "/api/rankings") {
+      if (!playerExists) return json({ error: "玩家尚未注册" }, 404);
+      const board = searchParams.get("board") ?? "today";
+      const roomId = playerExists.room_id;
+      if (board === "today" || board === "week") {
+        const day = currentBeijingDay();
+        const range = board === "today" ? leaderboardDayRange(day) : leaderboardWeekRange(day);
+        return json({ roomId, board, rows: periodDamageRanking.all(roomId, ...range) });
+      }
+      const query = allTimeRankings.get(board);
+      if (!query) return json({ error: "排行榜类型无效" }, 400);
+      return json({ roomId, board, rows: query.all(roomId) });
     }
     if (request.method === "GET" && pathname === "/api/kills") {
       if (!playerExists) return json({ error: "玩家尚未注册" }, 404);

@@ -70,6 +70,7 @@
         <h1 id="room-name" tabindex="-1">正在连接房间</h1>
         <div class="toolbar">
           <button class="secondary" id="open-kills" type="button" aria-controls="kills-view" disabled>击杀记录</button>
+          <button class="secondary" id="open-rankings" type="button" aria-controls="rankings-view" disabled>排行榜</button>
           <button class="secondary" id="open-share" type="button" hidden>邀请同事</button>
         </div>
       </div>
@@ -111,10 +112,10 @@
           <section class="panel" aria-labelledby="team-title">
             <div class="team-heading">
               <h2 id="team-title">房间成员</h2>
-              <span id="member-damage-label" title="本房总伤害 ÷ 出战天数，按北京时间划分">日均伤害</span>
+              <span id="member-damage-label" title="按北京时间统计今天在本房造成的实际伤害">今日伤害</span>
             </div>
             <ul id="members" class="member-list" aria-describedby="member-damage-label"></ul>
-            <p id="member-damage-status" class="member-damage-status" role="status" hidden>暂时无法读取日均伤害。</p>
+            <p id="member-damage-status" class="member-damage-status" role="status" hidden>暂时无法读取今日伤害。</p>
           </section>
         </aside>
       </div>
@@ -138,6 +139,30 @@
         <button class="secondary" id="kills-more" type="button" hidden>查看更早的击杀</button>
       </div>
     </section>
+    <section id="rankings-view" aria-labelledby="rankings-title" hidden>
+      <div class="page-heading">
+        <div>
+          <h1 id="rankings-title" tabindex="-1">房间排行榜</h1>
+          <p id="rankings-room-name" class="scope"></p>
+        </div>
+        <button class="secondary" id="rankings-back" type="button">返回战斗</button>
+      </div>
+      <div class="panel rankings-panel">
+        <div class="ranking-filters" role="group" aria-label="排行榜类型">
+          <button type="button" data-board="today" aria-pressed="true">今日伤害</button>
+          <button type="button" data-board="week" aria-pressed="false">本周伤害</button>
+          <button type="button" data-board="total" aria-pressed="false">总伤害</button>
+          <button type="button" data-board="kills" aria-pressed="false">Boss 击杀</button>
+          <button type="button" data-board="best-hit" aria-pressed="false">单击纪录</button>
+        </div>
+        <p id="ranking-description"></p>
+        <p id="ranking-status" role="status">正在加载排行榜…</p>
+        <table id="ranking-table" aria-describedby="ranking-description" hidden>
+          <thead><tr><th scope="col">排名</th><th scope="col">玩家</th><th scope="col" id="ranking-score-label">伤害</th></tr></thead>
+          <tbody id="ranking-rows"></tbody>
+        </table>
+      </div>
+    </section>
     <p id="boss-announcement" class="sr-only" role="status"></p>
   </main>
 
@@ -154,7 +179,7 @@
       <div><dt>自动攻击</dt><dd>启用 Magpie 插件后，每次成功的模型调用都会攻击一次。攻击可能暴击或追击，团队连续命中 5 次可追加伤害。</dd></div>
       <div><dt>应对进化技能</dt><dd>从第 6 关开始，Boss 会用护盾断连击、用残影削弱下一击，或反制暴击和追击。战斗页会显示当前技能、倒计时和斩杀条件。</dd></div>
       <div><dt>升级与最后一击</dt><dd>第一级升到第二级需 250 XP，之后每一级再加 100 XP。击败 Boss 的最后一击额外获得 20–80 XP，战报会单独标出奖励。</dd></div>
-      <div><dt>房间贡献</dt><dd>成员旁显示本房总伤害除以出战天数。按北京时间统计，今天伤害最高的成员会获得「今日主力」徽章，并列时都有。战斗页可打开「击杀记录」查看每关最后一击。</dd></div>
+      <div><dt>房间贡献</dt><dd>成员按今日伤害排序。按北京时间统计，今天伤害最高的成员会获得「今日主力」徽章，并列时都有。战斗页可打开排行榜或查看每关的最后一击。</dd></div>
     </dl>
   </dialog>
 
