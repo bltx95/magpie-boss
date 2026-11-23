@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -351,6 +351,14 @@ test("ranks weekly and daily damage, cumulative damage, last hits and best hits 
     expect(await scores("total")).toEqual([["Alice", 105, 1], ["Bob", 21, 2], ["Carol", 20, 3]]);
     expect(await scores("kills")).toEqual([["Bob", 2, 1], ["Alice", 1, 2]]);
     expect(await scores("best-hit")).toEqual([["Alice", 70, 1], ["Bob", 20, 2], ["Carol", 20, 2]]);
+    const starts = async (key) => (await board(key)).rows.map(({ leaderSince }) => leaderSince);
+    expect(await starts("today")).toEqual([new Date(today).toISOString(), ...Array(2).fill(
+      today === week ? null : new Date(today).toISOString(),
+    )]);
+    expect(await starts("week")).toEqual([new Date(week).toISOString(), null, null]);
+    expect(await starts("total")).toEqual([new Date(week - 1).toISOString(), null, null]);
+    expect(await starts("kills")).toEqual([new Date(week - 1).toISOString(), null]);
+    expect(await starts("best-hit")).toEqual([new Date(week - 1).toISOString(), null, null]);
     expect((await board("total")).rows.at(-1)).toMatchObject({ playerName: "Carol", isMember: 0 });
     expect(await board(`total&roomId=${room.id}`, 4)).toMatchObject({
       roomId: "lobby", rows: [{ playerName: "Drew", score: 500 }],
@@ -359,6 +367,63 @@ test("ranks weekly and daily damage, cumulative damage, last hits and best hits 
     expect(members.roomId).toBe(room.id);
     expect(members.rows.map(({ playerId, todayDamage }) => [ids.indexOf(playerId) + 1, todayDamage]).sort()).toEqual([[1, aliceToday], [2, 20]]);
   } finally {
+    close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("restarts a lost lead and links a tied best hit to the original attack beyond the recent feed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "boss-ranking-streak-"));
+  const path = join(directory, "room.sqlite");
+  const { close, send } = useRoom(() => 99, path);
+  const at = (time) => `2026-11-23T${time}:00.000Z`;
+  try {
+    setSystemTime(new Date(at("04:00")));
+    const { player: alice } = await (await send("/api/player", 1, { nickname: "Alice" })).json();
+    const { player: bob } = await (await send("/api/player", 2, { nickname: "Bob" })).json();
+    const db = new Database(path);
+    let original;
+    try {
+      const insert = db.query(`INSERT INTO attack_results (room_id, player_id, outcome, damage, xp, hp,
+        settled_at, boss_level, attack_kind, base_damage, combo_bonus, skill_name, skill_detail)
+        VALUES ('lobby', ?, 'hit', ?, 10, 40, ?, 7, 'followUp', 10, 5, '进化技能', '削弱下一击')`);
+      insert.run(alice.id, 10, at("02:40"));
+      insert.run(bob.id, 20, at("02:50"));
+      insert.run(alice.id, 10, at("03:00"));
+      original = insert.run(alice.id, 20, at("03:20")).lastInsertRowid;
+      insert.run(alice.id, 20, at("03:20"));
+      for (let index = 0; index < 31; index++) insert.run(bob.id, 0, at("03:55"));
+    } finally {
+      db.close();
+    }
+    const board = async (key) => (await send(`/api/rankings?board=${key}`, 1)).json();
+    const today = await board("today");
+    expect(today.rows).toMatchObject([
+      { playerId: alice.id, rank: 1, leaderSince: at("03:00") },
+      { playerId: bob.id, rank: 2, leaderSince: null },
+    ]);
+    expect(today.asOf - Date.parse(today.rows[0].leaderSince)).toBe(60 * 60000);
+    setSystemTime(new Date(at("04:30")));
+    const later = await board("today");
+    expect(later.asOf - Date.parse(later.rows[0].leaderSince)).toBe(90 * 60000);
+    const { room } = await (await send("/api/state", 1)).json();
+    expect(room.attacks.some(({ id }) => id === original)).toBe(false);
+    const best = await board("best-hit");
+    expect(best.rows).toMatchObject([
+      { playerId: alice.id, score: 20, rank: 1, leaderSince: at("03:20"), bestHitAttack: {
+        id: original, settledAt: at("03:20"), playerId: alice.id, damage: 20, xp: 10, hp: 40, bossLevel: 7,
+        kind: "followUp", baseDamage: 10, comboBonus: 5, skillName: "进化技能", skillDetail: "削弱下一击",
+      } },
+      { playerId: bob.id, score: 20, rank: 1, leaderSince: at("02:50") },
+    ]);
+    setSystemTime(new Date(at("16:00")));
+    expect((await board("today")).rows).toEqual([]);
+    expect((await board("week")).rows[0].leaderSince).toBe(at("03:00"));
+    setSystemTime(new Date("2026-11-29T16:00:00.000Z"));
+    expect((await board("week")).rows).toEqual([]);
+    expect((await board("total")).rows[0].leaderSince).toBe(at("03:00"));
+  } finally {
+    setSystemTime();
     close();
     rmSync(directory, { recursive: true, force: true });
   }

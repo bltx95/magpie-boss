@@ -22,8 +22,8 @@ const PUBLIC_ROOM = "lobby";
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
-function currentBeijingDay() {
-  return new Date(Date.now() + 8 * HOUR_MS).toISOString().slice(0, 10);
+function currentBeijingDay(now = Date.now()) {
+  return new Date(now + 8 * HOUR_MS).toISOString().slice(0, 10);
 }
 
 function leaderboardDayRange(day) {
@@ -195,6 +195,15 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
   `);
   const roomById = db.query("SELECT id, owner_id, visibility FROM rooms WHERE id = ?");
   const player = db.query("SELECT id, name, room_id, xp, starting_level, level_start_xp FROM players WHERE id = ?");
+  const roomAttacks = `
+    SELECT a.id, a.player_id AS playerId, p.name AS playerName, a.outcome, a.damage, a.xp, a.hp,
+      a.settled_at AS settledAt, a.boss_level AS bossLevel, a.skill_name AS skillName,
+      a.skill_detail AS skillDetail, a.attack_kind AS kind, a.base_damage AS baseDamage,
+      a.combo_bonus AS comboBonus, a.kill_xp AS killXp
+    FROM attack_results a JOIN players p ON p.id = a.player_id WHERE a.room_id = ?
+  `;
+  const recentAttacks = db.query(`${roomAttacks} ORDER BY a.id DESC LIMIT ?`);
+  const attackById = db.query(`${roomAttacks} AND a.id = ?`);
   const rankBy = (score, filter = "") => db.query(`
     SELECT p.id AS playerId, p.name AS playerName, p.room_id = a.room_id AS isMember,
       ${score} AS score, RANK() OVER (ORDER BY ${score} DESC) AS rank
@@ -203,12 +212,49 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
     GROUP BY p.id HAVING ${score} > 0
     ORDER BY score DESC, p.name, p.id
   `);
-  const periodDamageRanking = rankBy("SUM(a.damage)", "AND a.settled_at >= ? AND a.settled_at < ?");
+  const rankEvents = (points, filter) => db.query(`
+    SELECT a.id, a.player_id AS playerId, a.settled_at AS settledAt, ${points} AS points
+    FROM attack_results a WHERE a.room_id = ? ${filter}
+    ORDER BY a.settled_at, a.id
+  `);
+  const periodFilter = "AND a.settled_at >= ? AND a.settled_at < ?";
+  const periodDamageRanking = rankBy("SUM(a.damage)", periodFilter);
+  const periodDamageEvents = rankEvents("a.damage", `AND a.damage > 0 ${periodFilter}`);
+  const damageEvents = rankEvents("a.damage", "AND a.damage > 0");
+  const killFilter = "AND a.hp = 0";
   const allTimeRankings = new Map([
-    ["total", rankBy("SUM(a.damage)")],
-    ["kills", rankBy("COUNT(*)", "AND a.hp = 0")],
-    ["best-hit", rankBy("MAX(a.damage)")],
+    ["total", [rankBy("SUM(a.damage)"), damageEvents]],
+    ["kills", [rankBy("COUNT(*)", killFilter), rankEvents("1", killFilter)]],
+    ["best-hit", [rankBy("MAX(a.damage)"), damageEvents]],
   ]);
+  const readRankings = db.transaction((roomId, board, [query, events], period) => {
+    const rows = query.all(roomId, ...period);
+    if (!rows.length) return rows;
+    const isBestHit = board === "best-hit";
+    const scores = new Map();
+    const bestHitIds = new Map();
+    const leaderSince = new Map();
+    let best = 0;
+    for (const { id, playerId, settledAt, points } of events.iterate(roomId, ...period)) {
+      const previous = scores.get(playerId) ?? 0;
+      const score = isBestHit ? points : previous + points;
+      if (score <= previous) continue;
+      scores.set(playerId, score);
+      if (isBestHit) bestHitIds.set(playerId, id);
+      if (score < best) continue;
+      const since = leaderSince.get(playerId) ?? settledAt;
+      if (score > best) {
+        best = score;
+        leaderSince.clear();
+      }
+      leaderSince.set(playerId, since);
+    }
+    return rows.map((row) => ({
+      ...row,
+      leaderSince: leaderSince.get(row.playerId) ?? null,
+      ...(isBestHit && { bestHitAttack: attackById.get(roomId, bestHitIds.get(row.playerId)) }),
+    }));
+  });
   const memberDamage = db.query(`
     SELECT a.player_id AS playerId, SUM(a.damage) AS todayDamage
     FROM attack_results a JOIN players p ON p.id = a.player_id AND p.room_id = a.room_id
@@ -231,14 +277,7 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
     `).get(self.room_id);
     const members = db.query(`SELECT id, name, xp, starting_level, level_start_xp
       FROM players WHERE room_id = ? ORDER BY name, id`).all(room.id);
-    const attacks = db.query(`
-      SELECT attack_results.id, player_id AS playerId, players.name AS playerName,
-        outcome, damage, attack_results.xp, attack_results.hp, settled_at AS settledAt,
-        boss_level AS bossLevel, skill_name AS skillName, skill_detail AS skillDetail,
-        attack_kind AS kind, base_damage AS baseDamage, combo_bonus AS comboBonus, kill_xp AS killXp
-      FROM attack_results JOIN players ON players.id = attack_results.player_id
-      WHERE attack_results.room_id = ? ORDER BY attack_results.id DESC LIMIT ?
-    `).all(room.id, HISTORY_LIMIT);
+    const attacks = recentAttacks.all(room.id, HISTORY_LIMIT);
     const bossLevel = room.defeated + 1;
     const boss = bossForLevel(bossLevel);
     const interval = boss.skill.interval;
@@ -438,14 +477,15 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
       if (!playerExists) return json({ error: "玩家尚未注册" }, 404);
       const board = searchParams.get("board") ?? "today";
       const roomId = playerExists.room_id;
+      const asOf = Date.now();
       if (board === "today" || board === "week") {
-        const day = currentBeijingDay();
+        const day = currentBeijingDay(asOf);
         const range = board === "today" ? leaderboardDayRange(day) : leaderboardWeekRange(day);
-        return json({ roomId, board, rows: periodDamageRanking.all(roomId, ...range) });
+        return json({ roomId, board, asOf, rows: readRankings(roomId, board, [periodDamageRanking, periodDamageEvents], range) });
       }
-      const query = allTimeRankings.get(board);
-      if (!query) return json({ error: "排行榜类型无效" }, 400);
-      return json({ roomId, board, rows: query.all(roomId) });
+      const queries = allTimeRankings.get(board);
+      if (!queries) return json({ error: "排行榜类型无效" }, 400);
+      return json({ roomId, board, asOf, rows: readRankings(roomId, board, queries, []) });
     }
     if (request.method === "GET" && pathname === "/api/kills") {
       if (!playerExists) return json({ error: "玩家尚未注册" }, 404);

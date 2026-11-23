@@ -164,6 +164,14 @@
     <p id="boss-announcement" class="sr-only" role="status"></p>
   </main>
 
+  <dialog id="attack-detail-dialog" aria-labelledby="attack-detail-title">
+    <div class="dialog-heading">
+      <h2 id="attack-detail-title">攻击详情</h2>
+      <button class="icon-button" type="button" data-close aria-label="关闭">×</button>
+    </div>
+    <ul id="attack-detail" class="attack-history attack-detail"></ul>
+  </dialog>
+
   <button class="secondary guide-button" id="open-guide" type="button" aria-haspopup="dialog" aria-controls="guide-dialog">
     <span class="guide-icon" aria-hidden="true">?</span> 玩法指引
   </button>

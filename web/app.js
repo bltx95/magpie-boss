@@ -15,6 +15,9 @@ const beijingDayFormat = new Intl.DateTimeFormat("sv-SE", {
 const killTimeFormat = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short",
 });
+const attackDetailTimeFormat = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "medium",
+});
 const viewTitles = { lobby: "lobby-title", battle: "room-name", kills: "kills-title", rankings: "rankings-title" };
 const rankingBoards = {
   today: ["北京时间今日在本房造成的实际伤害。", "伤害"],
@@ -152,6 +155,44 @@ async function playAttacks() {
   }
 }
 
+function attackRow(attack, playerId, timeFormat = attackTime) {
+  const item = document.createElement("li");
+  const result = document.createElement("strong");
+  const time = document.createElement("time");
+  const name = attack.playerId === playerId ? "你" : attack.playerName;
+  const effect = attack.kind ?? attack.outcome;
+  result.dataset.outcome = effect;
+  result.textContent = `${name} · ${outcomeLabels[effect] ?? outcomeLabels[attack.outcome] ?? "攻击"} · ${format.format(attack.damage)} 点伤害`;
+  time.dateTime = attack.settledAt;
+  time.textContent = timeFormat.format(new Date(attack.settledAt));
+  const details = document.createElement("span");
+  const level = attack.bossLevel ? `第 ${attack.bossLevel} 关 · ` : "";
+  const reward = attack.killXp ? `（最后一击 +${format.format(attack.killXp)} XP）` : "";
+  details.textContent = `${level}+${format.format(attack.xp)} XP${reward} · ${attack.hp ? `Boss 剩 ${format.format(attack.hp)} HP` : "Boss 已击败"}`;
+  item.append(result, details, time);
+  if (attack.baseDamage != null) {
+    const damage = document.createElement("span");
+    damage.className = "history-damage";
+    const combo = attack.comboBonus ? ` · 团队连击 +${attack.comboBonus}` : "";
+    damage.textContent = `基础伤害 ${attack.baseDamage}${combo}`;
+    item.append(damage);
+  }
+  if (attack.skillName) {
+    const skill = document.createElement("span");
+    skill.className = "history-skill";
+    skill.textContent = `${attack.skillName} · ${attack.skillDetail}`;
+    item.append(skill);
+  }
+  return item;
+}
+
+function showAttackDetail(attack) {
+  const row = attackRow(attack, currentPlayerId, attackDetailTimeFormat);
+  row.querySelector("time").title = "北京时间";
+  byId("attack-detail").replaceChildren(row);
+  byId("attack-detail-dialog").showModal();
+}
+
 function renderHistory(room, player) {
   const attacks = room.attacks ?? [];
   const latestId = attacks[0]?.id ?? 0;
@@ -166,36 +207,7 @@ function renderHistory(room, player) {
   }
   lastAttackId = latestId;
   byId("history-empty").hidden = attacks.length > 0;
-  byId("attack-history").replaceChildren(...attacks.map((attack) => {
-    const item = document.createElement("li");
-    const result = document.createElement("strong");
-    const time = document.createElement("time");
-    const name = attack.playerId === player.id ? "你" : attack.playerName;
-    const effect = attack.kind ?? attack.outcome;
-    result.dataset.outcome = effect;
-    result.textContent = `${name} · ${outcomeLabels[effect] ?? outcomeLabels[attack.outcome] ?? "攻击"} · ${format.format(attack.damage)} 点伤害`;
-    time.dateTime = attack.settledAt;
-    time.textContent = attackTime.format(new Date(attack.settledAt));
-    const details = document.createElement("span");
-    const level = attack.bossLevel ? `第 ${attack.bossLevel} 关 · ` : "";
-    const reward = attack.killXp ? `（最后一击 +${format.format(attack.killXp)} XP）` : "";
-    details.textContent = `${level}+${format.format(attack.xp)} XP${reward} · ${attack.hp ? `Boss 剩 ${format.format(attack.hp)} HP` : "Boss 已击败"}`;
-    item.append(result, details, time);
-    if (attack.baseDamage != null) {
-      const damage = document.createElement("span");
-      damage.className = "history-damage";
-      const combo = attack.comboBonus ? ` · 团队连击 +${attack.comboBonus}` : "";
-      damage.textContent = `基础伤害 ${attack.baseDamage}${combo}`;
-      item.append(damage);
-    }
-    if (attack.skillName) {
-      const skill = document.createElement("span");
-      skill.className = "history-skill";
-      skill.textContent = `${attack.skillName} · ${attack.skillDetail}`;
-      item.append(skill);
-    }
-    return item;
-  }));
+  byId("attack-history").replaceChildren(...attacks.map((attack) => attackRow(attack, player.id)));
 }
 
 function renderBoss(room) {
@@ -307,6 +319,23 @@ function rankingStatus(text) {
   byId("ranking-results").hidden = Boolean(text);
 }
 
+function rankingDuration(elapsed) {
+  const minutes = Math.max(0, Math.floor(elapsed / 60000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor(minutes / 60) % 24;
+  return [days && `${format.format(days)} 天`, hours && `${hours} 小时`, minutes % 60 && `${minutes % 60} 分钟`]
+    .filter(Boolean).join(" ") || "不到 1 分钟";
+}
+
+function updateRankingDurations() {
+  if (byId("rankings-view").hidden || byId("ranking-results").hidden) return;
+  const now = rankingView.clockOffset + performance.now();
+  for (const label of byId("ranking-results").querySelectorAll("[data-leader-since]")) {
+    const text = `霸榜时长 ${rankingDuration(now - Number(label.dataset.leaderSince))}`;
+    if (label.textContent !== text) label.textContent = text;
+  }
+}
+
 function renderRankings(rows) {
   const [, metric] = rankingBoards[selectedBoard];
   const best = rows[0]?.score ?? 0;
@@ -348,11 +377,28 @@ function renderRankings(rows) {
     score.append(value, unit);
     row.style.setProperty("--score-share", `${best ? 100 * entry.score / best : 0}%`);
     row.append(position, player, score);
+    if (entry.leaderSince) {
+      const duration = document.createElement("span");
+      duration.className = "ranking-duration";
+      duration.dataset.leaderSince = String(Date.parse(entry.leaderSince));
+      row.append(duration);
+    }
+    if (entry.bestHitAttack) {
+      const detail = document.createElement("button");
+      detail.className = "secondary ranking-detail";
+      detail.type = "button";
+      detail.textContent = "查看攻击详情";
+      detail.setAttribute("aria-label", `查看 ${entry.playerName} 的攻击详情`);
+      detail.setAttribute("aria-haspopup", "dialog");
+      detail.addEventListener("click", () => showAttackDetail(entry.bestHitAttack));
+      row.append(detail);
+    }
     return row;
   });
   byId("ranking-leaders").replaceChildren(...cards.slice(0, 3));
   byId("ranking-rows").replaceChildren(...cards.slice(3));
   rankingStatus(rows.length ? "" : "这个榜单还没有记录。");
+  updateRankingDurations();
 }
 
 async function refreshRankings() {
@@ -371,6 +417,7 @@ async function refreshRankings() {
     const result = await request(`/api/rankings?${new URLSearchParams({ board: view.board })}`);
     if (!stillCurrent() || result.roomId !== view.roomId || result.board !== view.board) return;
     view.loadedKey = key;
+    view.clockOffset = result.asOf - performance.now();
     renderRankings(result.rows);
   } catch {
     if (stillCurrent() && !view.loadedKey) rankingStatus("暂时无法加载排行榜，稍后重试。");
@@ -782,6 +829,7 @@ async function init() {
     }
   }
   setInterval(refresh, 3000);
+  setInterval(updateRankingDurations, 1000);
 }
 
 bindBossSpeech();
