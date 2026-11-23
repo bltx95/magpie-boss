@@ -1,6 +1,6 @@
 {
   "name": "magpie-boss",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "把 Magpie 的模型调用变成团队 Boss 战。Join a shared boss raid powered by your Magpie model calls.",
   "type": "module",
   "main": "./plugin.mjs",
