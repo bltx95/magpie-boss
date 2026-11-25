@@ -262,7 +262,7 @@ export function createRoomService(path, { roll = (max) => randomInt(max), hosted
     GROUP BY a.player_id
   `);
   const kills = db.query(`
-    SELECT a.id, a.player_id AS playerId, p.name AS playerName, a.settled_at AS settledAt,
+    SELECT a.id, a.player_id AS playerId, p.name AS playerName, a.damage, a.settled_at AS settledAt,
       COALESCE(a.boss_level, r.defeated - (
         SELECT COUNT(*) FROM attack_results newer WHERE newer.room_id = a.room_id AND newer.hp = 0 AND newer.id > a.id
       )) AS bossLevel

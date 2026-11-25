@@ -196,6 +196,7 @@ try {
   assert.equal(kills.rows.length, 1);
   assert.equal(kills.rows[0].bossLevel, 1);
   assert.equal(kills.rows[0].playerId, levelTwo.player.id);
+  assert.equal(kills.rows[0].damage, levelTwo.room.attacks[0].damage);
   const killRanks = await (await checked(`${a.local}/api/rankings?board=kills`)).json();
   assert.deepEqual(killRanks.rows.map(({ playerId, score }) => [playerId, score]), [[levelTwo.player.id, 1]]);
   await a.call();

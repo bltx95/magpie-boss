@@ -451,7 +451,7 @@ test("rewards tied daily leaders and records the last hit on each boss beyond th
     expect(after.rows.filter(({ todayMvp }) => todayMvp).map(({ playerId }) => playerId)).toEqual([alice.id]);
     const history = await (await send("/api/kills", 1)).json();
     expect(history).toMatchObject({ roomId: room.id, nextBefore: null, rows: [
-      { bossLevel: 1, bossName: "缓存怪", bossSkin: "cache", bossEvolved: false, playerId: bob.id, playerName: "Bob" },
+      { bossLevel: 1, bossName: "缓存怪", bossSkin: "cache", bossEvolved: false, playerId: bob.id, playerName: "Bob", damage: 8 },
     ] });
     const db = new Database(path);
     try {
@@ -473,7 +473,9 @@ test("rewards tied daily leaders and records the last hit on each boss beyond th
     expect(page.rows.at(-1).bossLevel).toBe(3);
     const tail = await (await send(`/api/kills?before=${page.nextBefore}`, 1)).json();
     expect(tail.nextBefore).toBeNull();
-    expect(tail.rows.map(({ bossLevel, playerName }) => [bossLevel, playerName])).toEqual([[2, "Alice"], [1, "Bob"]]);
+    expect(tail.rows.map(({ bossLevel, playerName, damage }) => [bossLevel, playerName, damage])).toEqual([
+      [2, "Alice", 10], [1, "Bob", 8],
+    ]);
     const outsider = await (await send(`/api/kills?roomId=${room.id}`, 3)).json();
     expect(outsider).toEqual({ roomId: "lobby", rows: [], nextBefore: null });
     await send("/api/home", 2, {});

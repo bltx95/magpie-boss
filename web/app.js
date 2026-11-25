@@ -453,6 +453,7 @@ function killRow(record) {
   const player = document.createElement("strong");
   player.textContent = `${record.playerName}${record.playerId === currentPlayerId ? "（你）" : ""}`;
   finisher.append("最后一击 ", player);
+  if (Number.isFinite(record.damage)) finisher.append(` · ${format.format(record.damage)} 点伤害`);
   const time = document.createElement("time");
   time.dateTime = record.settledAt;
   time.textContent = killTimeFormat.format(new Date(record.settledAt));
